@@ -1,0 +1,16 @@
+[
+  { "colegiado": "10001", "nombre": "DIEGO ANTONIO BETETA GARCIA", "activo": true, "dpi": "1000100000001", "fechaNacimiento": "1991-01-01" },
+  { "colegiado": "10002", "nombre": "MARIA LUISA FERNANDA CALDERON MOLINA", "activo": true, "dpi": "1000200000002", "fechaNacimiento": "1992-02-02" },
+  { "colegiado": "10003", "nombre": "OSCAR JOSE COJULUN MENDOZA", "activo": true, "dpi": "1000300000003", "fechaNacimiento": "1993-03-03" },
+  { "colegiado": "10004", "nombre": "MARIO ANDRES CULAJAY ROLDAN", "activo": true, "dpi": "1000400000004", "fechaNacimiento": "1994-04-04" },
+  { "colegiado": "10005", "nombre": "SAMUEL ESTUARDO ESPAÑA SON", "activo": true, "dpi": "1000500000005", "fechaNacimiento": "1995-05-05" },
+  { "colegiado": "10006", "nombre": "WALTER DANIEL ELIU GOMAR GONZALEZ", "activo": true, "dpi": "1000600000006", "fechaNacimiento": "1996-06-06" },
+  { "colegiado": "10007", "nombre": "ALVARO MIGUEL GONZALEZ HIC", "activo": true, "dpi": "1000700000007", "fechaNacimiento": "1997-07-07" },
+  { "colegiado": "10008", "nombre": "FLOR DE MARIA GUTIERREZ LEAL", "activo": true, "dpi": "1000800000008", "fechaNacimiento": "1998-08-08" },
+  { "colegiado": "10009", "nombre": "DIEGO RICARDO HERNANDEZ DE PAZ", "activo": true, "dpi": "1000900000009", "fechaNacimiento": "1999-09-09" },
+  { "colegiado": "10010", "nombre": "JONATHAN ROGELIO HERRERA SOTO", "activo": true, "dpi": "1001000000010", "fechaNacimiento": "1990-10-10" },
+  { "colegiado": "10011", "nombre": "GERARDO ANTONIO OVANDO HERNANDEZ", "activo": true, "dpi": "1001100000011", "fechaNacimiento": "1991-11-11" },
+  { "colegiado": "10012", "nombre": "SERGIO ENRIQUE SANCHEZ SANCHEZ", "activo": true, "dpi": "1001200000012", "fechaNacimiento": "1992-12-12" },
+  { "colegiado": "10013", "nombre": "PABLO DANIEL TZUL RAXHON", "activo": true, "dpi": "1001300000013", "fechaNacimiento": "1993-01-13" },
+  { "colegiado": "19999", "nombre": "JOSE MIGUEL VILLATORO HIDALGO", "activo": true, "dpi": "1999900000001", "fechaNacimiento": "1980-05-15" }
+]

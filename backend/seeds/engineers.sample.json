@@ -1,0 +1,4 @@
+[
+  { "colegiado": "12345", "nombre": "VOTANTE DEMO", "activo": true, "dpi": "1234500000001", "fechaNacimiento": "1990-01-01" },
+  { "colegiado": "99999", "nombre": "INGENIERO DOCENTE", "activo": true, "dpi": "9999900000001", "fechaNacimiento": "1980-05-15" }
+]

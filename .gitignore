@@ -1,0 +1,30 @@
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-error.log
+pnpm-lock.yaml
+yarn.lock
+*.log
+
+# Builds
+/dist/
+**/dist/
+/build/
+**/build/
+.esbuild/
+coverage/
+*.tsbuildinfo
+
+# Env files
+.env
+.env.*
+**/.env
+**/.env.*
+backend/.env
+frontend/.env
+
+# Editor/OS
+.vscode/
+.DS_Store
+Thumbs.db

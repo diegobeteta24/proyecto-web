@@ -1,0 +1,49 @@
+import 'dotenv/config'
+import { migrate, getPool } from '../db'
+
+async function main() {
+  const args = process.argv.slice(2).filter(a => !a.startsWith('--'))
+  if (args.length === 0) {
+    console.error('Uso: tsx src/scripts/seedEngineers.ts <ruta-json> [ruta-json-2 ...]')
+    process.exit(1)
+  }
+  const fs = await import('node:fs/promises')
+  const merged: any[] = []
+  for (const file of args) {
+    const json = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (Array.isArray(json)) merged.push(...json)
+    else if (Array.isArray(json?.items)) merged.push(...json.items)
+    else throw new Error(`El archivo ${file} debe ser un arreglo JSON o { items: [] }`)
+  }
+  await migrate()
+  const pool = await getPool()
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    let count = 0
+    for (const it of merged) {
+      const colegiado = String(it.colegiado ?? '').trim()
+      const nombre = String(it.nombre ?? '').trim()
+      const activo = it.activo ? 1 : 0
+      const dpi = it.dpi ? String(it.dpi).trim() : null
+      const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
+      if (!colegiado || !nombre) continue
+      await conn.query(
+        `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
+        [colegiado, nombre, activo, dpi, fecha]
+      )
+      count++
+    }
+    await conn.commit()
+    console.log(`Seeded/updated ${count} engineers from ${args.length} file(s)`) 
+  } catch (e) {
+    try { await conn.rollback() } catch {}
+    console.error('Seed error', e)
+    process.exit(1)
+  } finally {
+    conn.release()
+  }
+}
+
+main().catch(err => { console.error(err); process.exit(1) })
