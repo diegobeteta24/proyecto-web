@@ -1,15 +1,33 @@
 import 'dotenv/config'
 import express, { Request, Response } from 'express'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import cors from 'cors'
 import { authRouter } from './routes/auth'
 import { campaignsRouter } from './routes/campaigns'
+import { adminEngineersRouter } from './routes/adminEngineers'
 import { db } from './store'
 import { migrate, getPool } from './db'
 import bcrypt from 'bcryptjs'
 
+// Emular __dirname en módulos ES
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+// Static assets: favicon and candidate images
+const publicDir = path.join(__dirname, '..', 'public')
+const uploadsDir = path.join(__dirname, '..', 'uploads')
+app.use('/static', express.static(publicDir, { maxAge: '1d', extensions: ['png','jpg','jpeg','svg','ico','webp'] }))
+app.use('/uploads', express.static(uploadsDir, { maxAge: '5m' }))
+
+// Simple endpoint to confirm uploads path (debug)
+app.get('/api/uploads/health', (_req, res) => {
+  res.json({ ok: true })
+})
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ ok: true, time: new Date().toISOString() })
@@ -17,6 +35,14 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 app.use('/api/auth', authRouter)
 app.use('/api/campaigns', campaignsRouter)
+app.use('/api/admin/engineers', adminEngineersRouter)
+
+// Serve favicon at root path too
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(publicDir, 'favicon.ico'), (err) => {
+    if (err) return res.status(404).end()
+  })
+})
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001
 app.listen(PORT, () => {

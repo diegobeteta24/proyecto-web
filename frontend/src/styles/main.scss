@@ -1,10 +1,157 @@
+// ====== Theme tokens
 $primary: #1e88e5;
+$primary-600: #1565c0;
+$secondary: #6c757d;
+$success: #2e7d32;
+$warning: #f9a825;
+$danger: #d32f2f;
+$bg: #f6f8fb;
+$card-bg: #ffffff;
+$text: #1f2937;
+$muted: #6b7280;
 
-body {
-  background: #f6f8fb;
+// ====== Mixins & helpers
+@mixin elevation($z: 1) {
+  @if $z == 0 { box-shadow: none; }
+  @else if $z == 1 { box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.05); }
+  @else if $z == 2 { box-shadow: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.06); }
+  @else if $z == 3 { box-shadow: 0 10px 15px rgba(0,0,0,.08), 0 4px 6px rgba(0,0,0,.06); }
 }
 
-.navbar-brand {
-  color: $primary !important;
-  font-weight: 600;
+@mixin smooth {
+  transition: all .18s ease-in-out;
+}
+
+@mixin media($bp) {
+  @if $bp == sm { @media (max-width: 576px) { @content; } }
+  @else if $bp == md { @media (max-width: 768px) { @content; } }
+  @else if $bp == lg { @media (max-width: 992px) { @content; } }
+  @else if $bp == xl { @media (max-width: 1200px) { @content; } }
+}
+
+// ====== Base
+* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+html, body { height: 100%; }
+body {
+  background: $bg;
+  color: $text;
+}
+img { max-width: 100%; height: auto; }
+
+// ====== Navbar
+.navbar {
+  position: sticky; top: 0; z-index: 100; backdrop-filter: saturate(180%) blur(6px);
+  background-color: rgba(255,255,255,.8) !important;
+  border-bottom: 1px solid rgba(0,0,0,.05);
+}
+.navbar-brand { color: $primary !important; font-weight: 600; letter-spacing: .2px; }
+
+// ====== Cards
+.card {
+  background: $card-bg;
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 14px;
+  @include elevation(1);
+  @include smooth;
+}
+.card:hover { @include elevation(2); transform: translateY(-1px); }
+.card-title { font-weight: 600; }
+.card-text { color: $muted; }
+
+// Hover-lift for clickable cards
+.card .btn { @include smooth; }
+.card .btn:hover { transform: translateY(-1px); }
+
+// ====== Buttons
+.btn-primary,
+.btn-outline-primary {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: #{$primary};
+  --bs-btn-border-color: #{$primary};
+  --bs-btn-hover-bg: #{$primary-600};
+  --bs-btn-hover-border-color: #{$primary-600};
+}
+
+// ====== Badges
+.badge.bg-success { background-color: $success !important; }
+.badge.bg-secondary { background-color: $secondary !important; }
+.badge { border-radius: 999px; font-weight: 500; }
+
+// ====== Lists
+.list-group-item {
+  border: 1px solid rgba(0,0,0,.06);
+  @include smooth;
+}
+.list-group-item:hover { background: #fafafa; }
+
+// Candidate row spacing
+.list-group-item .badge { min-width: 72px; justify-content: center; }
+
+// ====== Countdown pill
+.countdown {
+  display: inline-flex; align-items: center; gap: .35rem;
+  background: #eef6ff; color: $primary;
+  border-radius: 999px; padding: .2rem .6rem; font-variant-numeric: tabular-nums;
+}
+
+// ====== Chart wrappers
+.chart-wrap { width: 100%; max-width: 520px; margin: 0 auto; }
+.chart-empty { color: $muted; text-align: center; padding: 2rem 0; }
+
+// ====== Forms & modal
+.form-control:focus { border-color: rgba($primary, .4); box-shadow: 0 0 0 .2rem rgba($primary, .15); }
+.modal-content { border-radius: 16px; @include elevation(3); }
+.modal-header { border-bottom-color: rgba(0,0,0,.06); }
+.modal-footer { border-top-color: rgba(0,0,0,.06); }
+
+// ====== Utilities
+.text-muted { color: $muted !important; }
+.shadow-0 { @include elevation(0); }
+.shadow-1 { @include elevation(1); }
+.shadow-2 { @include elevation(2); }
+.shadow-3 { @include elevation(3); }
+
+// Fade-in for lists
+.fade-in { animation: fadeIn .25s ease-out both; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+
+// ====== Admin typeahead (genérico)
+.typeahead {
+  position: relative;
+  &__menu {
+    position: absolute; inset: auto 0 0 0; transform: translateY(100%);
+    background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 10px;
+    padding: .25rem; margin-top: .25rem; max-height: 240px; overflow: auto; @include elevation(2);
+  }
+  &__item { padding: .45rem .6rem; border-radius: 8px; cursor: pointer; @include smooth; }
+  &__item:hover { background: #f2f6ff; }
+  &__empty { padding: .5rem; color: $muted; }
+}
+
+// ====== Page-specific tweaks
+.campaigns-grid .card { height: 100%; }
+.campaigns-grid .card .badge { font-size: .75rem; }
+
+// Detail header alignment on small screens
+@include media(md) {
+  .navbar { position: static; }
+}
+
+// ====== Dark mode (opt-in by OS)
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+  body { background: #0f172a; color: #e5e7eb; }
+  .navbar { background-color: rgba(15,23,42,.7) !important; border-bottom-color: rgba(255,255,255,.06); }
+  .card { background: #101827; border-color: rgba(255,255,255,.06); }
+  .card-text { color: #9ca3af; }
+  .list-group-item { background: #0b1220; border-color: rgba(255,255,255,.06); }
+  .list-group-item:hover { background: #0e1627; }
+  .countdown { background: #0b2a4a; color: #cde4ff; }
+}
+
+// ====== Print
+@media print {
+  .navbar, .btn, .modal { display: none !important; }
+  body { background: #fff; }
+  .card { box-shadow: none !important; border: 1px solid #ddd; }
 }

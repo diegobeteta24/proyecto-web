@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Container, Nav, Navbar, Button, Card, Row, Col, Badge } from 'react-bootstrap'
-import { PieChart, Pie, Cell, Tooltip } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom'
 import './styles/main.scss'
+import { safeDisplayName } from './utils/encoding'
 import Register from './pages/Register'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
@@ -16,19 +17,18 @@ function useAuth() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
   const login = (t: string) => { localStorage.setItem('token', t); setToken(t) }
   const logout = () => { localStorage.removeItem('token'); setToken(null) }
-  // decode role from token for simple client-side gating
-  const role = useMemo(() => {
+  const user = useMemo(() => {
     if (!token) return null
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      return payload.role as string
+      return JSON.parse(atob(token.split('.')[1]))
     } catch { return null }
   }, [token])
-  return { token, login, logout, role }
+  const role = user?.role ?? null
+  return { token, login, logout, role, user }
 }
 
 function App() {
-  const { token, login, logout, role } = useAuth()
+  const { token, login, logout, role, user } = useAuth()
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -53,7 +53,10 @@ function App() {
     <>
       <Navbar bg="light" expand="lg" className="mb-4">
         <Container>
-          <Navbar.Brand>Votaciones UMG</Navbar.Brand>
+          <Navbar.Brand as={Link} to="/" className="d-flex align-items-center gap-2">
+            <img src="/logo.png" alt="Logo" style={{ height: 32 }} onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/favicon.ico' }} />
+            <span>Votaciones CIG</span>
+          </Navbar.Brand>
           <Nav className="ms-auto align-items-center gap-2">
             {token && (<Link to="/campaigns" className="btn btn-outline-success btn-sm">Campañas</Link>)}
             {token && role === 'admin' && (<Link to="/admin/campaigns" className="btn btn-outline-dark btn-sm">Admin</Link>)}
@@ -64,7 +67,15 @@ function App() {
                 <Link to="/admin/login" className="btn btn-outline-dark btn-sm">Admin</Link>
               </div>
             ) : (
-              <Button variant="outline-secondary" size="sm" onClick={logout}>Salir</Button>
+              <div className="d-flex align-items-center gap-2">
+                {user && (
+                  <span className="small text-muted d-none d-md-inline">
+                    {safeDisplayName(user.nombre || user.email || 'Usuario')}
+                    {user.role && <span className="ms-1">({user.role === 'admin' ? 'Admin' : 'Votante'})</span>}
+                  </span>
+                )}
+                <Button variant="outline-secondary" size="sm" onClick={logout}>Salir</Button>
+              </div>
             )}
           </Nav>
         </Container>
@@ -153,16 +164,21 @@ function Home({ campaigns }: { campaigns: any[] }) {
 
 function MiniPie({ votos, candidatos }: { votos: Record<string, number>, candidatos: any[] }) {
   const data = (candidatos || []).map((c: any) => ({ name: c.nombre, value: (votos?.[c.id] ?? 0) }))
-  const colors = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948']
+  const colors = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#af7aa1','#ff9da7']
   const total = data.reduce((a, b) => a + b.value, 0)
-  // Avoid rendering empty chart
+  const slices = data.filter(d => d.value > 0)
   if (!data.length) return null
+  if (total === 0) return <small className="text-muted">Sin votos aún</small>
   return (
-    <PieChart width={160} height={120}>
-      <Pie dataKey="value" data={data} cx={75} cy={55} outerRadius={45}>
-        {data.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
-      </Pie>
-      {total > 0 ? <Tooltip /> : null}
-    </PieChart>
+    <div style={{ width: 160, height: 120 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie dataKey="value" data={slices} innerRadius={35} outerRadius={50} paddingAngle={0.5} stroke="none" isAnimationActive={false}>
+            {slices.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
+          </Pie>
+          <Tooltip formatter={(v: any) => `${v} voto(s)`} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
   )
 }

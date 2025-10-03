@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express'
-import { AuthRequest, requireAuth, requireRole } from '../middleware/auth'
+import { AuthRequest, requireAuth, requireRole, requireRoles } from '../middleware/auth'
 import { getPool } from '../db'
 
 export const campaignsRouter = Router()
@@ -12,14 +12,41 @@ async function fetchCampaignWithStats(campaignId: number) {
     [campaignId]
   )
   if (!campaign) return null
-  const [cands]: any = await pool.query(
-    'SELECT c.id, c.nombre, c.bio, c.foto_url, c.engineer_id FROM candidates c INNER JOIN campaign_candidates cc ON cc.candidate_id=c.id WHERE cc.campaign_id=? ORDER BY c.id',
-    [campaignId]
-  )
-  const [voteRows]: any = await pool.query(
-    'SELECT candidate_id, COUNT(*) AS cnt FROM votes WHERE campaign_id=? GROUP BY candidate_id',
-    [campaignId]
-  )
+  let cands: any[] = []
+  try {
+    const [rows]: any = await pool.query(
+      'SELECT c.id, c.nombre, c.bio AS cand_bio, c.foto_url, c.engineer_id, cc.bio AS cc_bio FROM candidates c INNER JOIN campaign_candidates cc ON cc.candidate_id=c.id WHERE cc.campaign_id=? ORDER BY c.id',
+      [campaignId]
+    )
+    cands = rows
+  } catch (err: any) {
+    // Fallback if cc.bio column does not yet exist (migration race) -> ignore per-campaign bio
+    if (err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column 'cc\.bio'/i.test(String(err.message)))) {
+      try {
+        const [rows2]: any = await pool.query(
+          'SELECT c.id, c.nombre, c.bio AS cand_bio, c.foto_url, c.engineer_id, NULL AS cc_bio FROM candidates c INNER JOIN campaign_candidates cc ON cc.candidate_id=c.id WHERE cc.campaign_id=? ORDER BY c.id',
+          [campaignId]
+        )
+        cands = rows2
+      } catch (inner) {
+        console.error('fetchCampaignWithStats fallback failed', inner)
+        cands = []
+      }
+    } else {
+      console.error('fetchCampaignWithStats candidates query failed', err)
+      cands = []
+    }
+  }
+  let voteRows: any[] = []
+  try {
+    const [vr]: any = await pool.query(
+      'SELECT candidate_id, COUNT(*) AS cnt FROM votes WHERE campaign_id=? GROUP BY candidate_id',
+      [campaignId]
+    )
+    voteRows = vr
+  } catch (e) {
+    console.error('fetchCampaignWithStats votes query failed', e)
+  }
   const votos: Record<string, number> = {}
   for (const r of voteRows) votos[String(r.candidate_id)] = Number(r.cnt)
   return {
@@ -29,7 +56,7 @@ async function fetchCampaignWithStats(campaignId: number) {
     habilitada: !!campaign.habilitada,
     iniciaEn: new Date(campaign.inicia_en).toISOString(),
     terminaEn: new Date(campaign.termina_en).toISOString(),
-  candidatos: cands.map((c: any) => ({ id: String(c.id), nombre: c.nombre, bio: c.bio, fotoUrl: c.foto_url, engineerId: c.engineer_id ? String(c.engineer_id) : undefined })),
+    candidatos: cands.map((c: any) => ({ id: String(c.id), nombre: c.nombre, bio: (c.cc_bio ?? c.cand_bio) || null, fotoUrl: c.foto_url, engineerId: c.engineer_id ? String(c.engineer_id) : undefined })),
     votos,
     votosPorVotante: Number(campaign.votos_por_votante),
   }
@@ -50,22 +77,30 @@ campaignsRouter.get('/', requireAuth, async (req: AuthRequest, res: Response) =>
     const result: any[] = []
     const now = Date.now()
     for (const r of rows) {
-      const data = await fetchCampaignWithStats(Number(r.id))
-      if (!data) continue
-      // Auto-deshabilitar si terminó
       try {
-        const end = new Date((data as any).terminaEn).getTime()
-        if ((data as any).habilitada && now > end) {
-          await pool.query('UPDATE campaigns SET habilitada=0 WHERE id=?', [(data as any).id])
-          ;(data as any).habilitada = false
+        const data = await fetchCampaignWithStats(Number(r.id))
+        if (!data) continue
+        // Auto-deshabilitar si terminó
+        try {
+          const end = new Date((data as any).terminaEn).getTime()
+          if ((data as any).habilitada && now > end) {
+            await pool.query('UPDATE campaigns SET habilitada=0 WHERE id=?', [(data as any).id])
+            ;(data as any).habilitada = false
+          }
+        } catch (innerEnd) {
+          console.error('Error auto-deshabilitando campaña', { id: r.id, err: (innerEnd as any)?.message })
         }
-      } catch {}
-      const used = usedMap[String((data as any).id)] ?? 0
-      ;(data as any).votosDisponibles = Math.max(0, Number((data as any).votosPorVotante ?? 0) - used)
-      result.push(data)
+        const used = usedMap[String((data as any).id)] ?? 0
+        ;(data as any).votosDisponibles = Math.max(0, Number((data as any).votosPorVotante ?? 0) - used)
+        result.push(data)
+      } catch (eachErr) {
+        console.error('Error procesando campaña en listado', { id: r.id, err: (eachErr as any)?.message })
+        continue
+      }
     }
     return res.json(result)
   } catch (err: any) {
+    console.error('GET /api/campaigns failed', err?.message, err)
     return res.status(500).json({ error: 'Error al listar campañas' })
   }
 })
@@ -92,7 +127,7 @@ campaignsRouter.get('/options/engineers/search', requireAuth, requireRole('admin
 })
 
 // Admin: delete a campaign and its relations
-campaignsRouter.delete('/campaigns/:id', requireAuth, requireRole('admin'), async (req: AuthRequest, res: Response) => {
+campaignsRouter.delete('/:id', requireAuth, requireRole('admin'), async (req: AuthRequest, res: Response) => {
   const id = req.params.id
   const pool = await getPool()
   const conn = await pool.getConnection()
@@ -152,10 +187,11 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
         candidateId = insC.insertId
       } else {
         const nombre = c?.nombre ?? 'Candidato'
-        const [insC]: any = await conn.query('INSERT INTO candidates (nombre, bio, foto_url) VALUES (?, ?, ?)', [nombre, c?.bio ?? null, c?.fotoUrl ?? null])
+        const [insC]: any = await conn.query('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
         candidateId = insC.insertId
       }
-      await conn.query('INSERT IGNORE INTO campaign_candidates (campaign_id, candidate_id) VALUES (?, ?)', [campaignId, candidateId])
+      // Insert link with optional per-campaign bio
+      await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [campaignId, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
     }
     await conn.commit()
     const data = await fetchCampaignWithStats(campaignId)
@@ -209,10 +245,10 @@ campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: Aut
           }
         } else {
           const nombre = typeof c === 'string' ? c : c?.nombre ?? 'Candidato'
-          const [insC]: any = await conn.query('INSERT INTO candidates (nombre, bio, foto_url) VALUES (?, ?, ?)', [nombre, c?.bio ?? null, c?.fotoUrl ?? null])
+          const [insC]: any = await conn.query('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
           candidateId = insC.insertId
         }
-        await conn.query('INSERT IGNORE INTO campaign_candidates (campaign_id, candidate_id) VALUES (?, ?)', [id, candidateId])
+        await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [id, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
       }
     }
     await conn.commit()
@@ -228,7 +264,7 @@ campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: Aut
 })
 
 // Vote in a campaign
-campaignsRouter.post('/:id/vote', requireAuth, requireRole('voter'), async (req: AuthRequest, res: Response) => {
+campaignsRouter.post('/:id/vote', requireAuth, requireRoles(['voter','admin']), async (req: AuthRequest, res: Response) => {
   const id = Number(req.params.id)
   const { candidateId } = req.body ?? {}
   if (!candidateId) return res.status(400).json({ error: 'Candidato requerido' })
@@ -267,27 +303,33 @@ campaignsRouter.post('/:id/vote', requireAuth, requireRole('voter'), async (req:
 // Get a campaign detail
 campaignsRouter.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   const id = Number(req.params.id)
-  const data = await fetchCampaignWithStats(id)
-  if (!data) return res.status(404).json({ error: 'No encontrada' })
-  // attach votosDisponibles for this voter
   try {
-    const pool = await getPool()
-    // Auto-deshabilitar si terminó
+    const data = await fetchCampaignWithStats(id)
+    if (!data) return res.status(404).json({ error: 'No encontrada' })
     try {
-      const end = new Date((data as any).terminaEn).getTime()
-      if ((data as any).habilitada && Date.now() > end) {
-        await pool.query('UPDATE campaigns SET habilitada=0 WHERE id=?', [id])
-        ;(data as any).habilitada = false
+      const pool = await getPool()
+      // Auto-deshabilitar si terminó
+      try {
+        const end = new Date((data as any).terminaEn).getTime()
+        if ((data as any).habilitada && Date.now() > end) {
+          await pool.query('UPDATE campaigns SET habilitada=0 WHERE id=?', [id])
+          ;(data as any).habilitada = false
+        }
+      } catch {}
+      const voterId = req.user?.id ? Number(req.user.id) : null
+      if (voterId) {
+        const [[row]]: any = await pool.query('SELECT COUNT(*) AS used FROM votes WHERE campaign_id=? AND voter_id=?', [id, voterId])
+        const used = Number(row?.used ?? 0)
+        ;(data as any).votosDisponibles = Math.max(0, Number((data as any).votosPorVotante ?? 0) - used)
+      } else {
+        ;(data as any).votosDisponibles = Number((data as any).votosPorVotante ?? 0)
       }
-    } catch {}
-    const voterId = req.user?.id ? Number(req.user.id) : null
-    if (voterId) {
-      const [[row]]: any = await pool.query('SELECT COUNT(*) AS used FROM votes WHERE campaign_id=? AND voter_id=?', [id, voterId])
-      const used = Number(row?.used ?? 0)
-      ;(data as any).votosDisponibles = Math.max(0, Number((data as any).votosPorVotante ?? 0) - used)
-    } else {
-      ;(data as any).votosDisponibles = Number((data as any).votosPorVotante ?? 0)
+    } catch (inner) {
+      console.error('Error computing votosDisponibles', inner)
     }
-  } catch {}
-  return res.json(data)
+    return res.json(data)
+  } catch (err) {
+    console.error('GET /api/campaigns/:id failed', err)
+    return res.status(500).json({ error: 'Error interno obteniendo campaña' })
+  }
 })

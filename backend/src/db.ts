@@ -103,11 +103,14 @@ export async function migrate() {
     CREATE TABLE IF NOT EXISTS campaign_candidates (
       campaign_id INT NOT NULL,
       candidate_id INT NOT NULL,
+      bio TEXT NULL,
       PRIMARY KEY (campaign_id, candidate_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
       FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `)
+  // Add bio column to campaign_candidates if it doesn't exist
+  try { await pool.query('ALTER TABLE campaign_candidates ADD COLUMN bio TEXT NULL') } catch {}
 
   // votes
   await pool.query(`

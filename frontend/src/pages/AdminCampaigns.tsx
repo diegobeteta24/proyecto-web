@@ -36,7 +36,8 @@ function EngineerTypeahead({ value, onChange, initialLabel, headers }: { value: 
         let data: any = []
         try { data = await res.json() } catch { data = [] }
         console.log('[Typeahead] results', { count: data?.length, sample: data?.[0] })
-        setSuggestions(Array.isArray(data) ? data : [])
+        const arr = Array.isArray(data) ? data.map((x: any) => ({ id: String(x.id), nombre: String(x.nombre || ''), colegiado: String(x.colegiado || '') })) : []
+        setSuggestions(arr)
         setOpen(true)
       } finally {
         setBusy(false)
@@ -90,7 +91,10 @@ function EngineerTypeahead({ value, onChange, initialLabel, headers }: { value: 
               onClick={(e) => { e.preventDefault(); console.log('[Typeahead] onClick select', s); onChange(s.id); setText(`${s.nombre} (#${s.colegiado})`); setOpen(false) }}
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', cursor: 'pointer', background: 'white', border: 'none' }}
             >
-              {s.nombre} <small className="text-muted">#{s.colegiado}</small>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontWeight: 600, color: '#111', lineHeight: 1.1 }}>{s.nombre || `Ingeniero #${s.colegiado}`}</span>
+                <small className="text-muted" style={{ lineHeight: 1.1 }}>#{s.colegiado}</small>
+              </div>
             </button>
           ))}
         </div>
@@ -107,7 +111,7 @@ type Campaign = {
   habilitada: boolean
   iniciaEn: string
   terminaEn: string
-  candidatos: { id: string, nombre: string, engineerId?: string }[]
+  candidatos: { id: string, nombre: string, engineerId?: string, bio?: string }[]
 }
 
 export default function AdminCampaigns() {
@@ -115,7 +119,7 @@ export default function AdminCampaigns() {
   const [items, setItems] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(false)
   const [show, setShow] = useState(false)
-  const [form, setForm] = useState<any>({ titulo: '', descripcion: '', votosPorVotante: 1, habilitada: false, iniciaEn: '', terminaEn: '', candidatos: [''] })
+  const [form, setForm] = useState<any>({ titulo: '', descripcion: '', votosPorVotante: 1, habilitada: false, iniciaEn: '', terminaEn: '', candidatos: [{ engineerId: '', bio: '' }] })
   const [editCandLabels, setEditCandLabels] = useState<string[]>([''])
   const [editing, setEditing] = useState<Campaign | null>(null)
 
@@ -123,23 +127,57 @@ export default function AdminCampaigns() {
 
   async function load() {
     setLoading(true)
-  const res = await fetch(`${API}/campaigns`, { headers: authHeader as HeadersInit })
-    const data = await res.json()
-    setItems(data)
-    setLoading(false)
+    try {
+      const res = await fetch(`${API}/campaigns`, { headers: authHeader as HeadersInit })
+      if (!res.ok) {
+        console.error('Load campaigns failed', res.status)
+        setItems([])
+        return
+      }
+      let data: any = []
+      try { data = await res.json() } catch { data = [] }
+      if (!Array.isArray(data)) {
+        console.warn('Expected array of campaigns, got', data)
+        setItems([])
+      } else {
+        setItems(data)
+      }
+    } catch (e) {
+      console.error('Load campaigns error', e)
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
 
   function openCreate() {
     setEditing(null)
-    setForm({ titulo: '', descripcion: '', votosPorVotante: 1, habilitada: false, iniciaEn: '', terminaEn: '', candidatos: [''] })
+    setForm({ titulo: '', descripcion: '', votosPorVotante: 1, habilitada: false, iniciaEn: '', terminaEn: '', candidatos: [{ engineerId: '', bio: '' }] })
     setEditCandLabels([''])
     setShow(true)
   }
   function openEdit(c: Campaign) {
     setEditing(c)
-    setForm({ titulo: c.titulo, descripcion: c.descripcion ?? '', votosPorVotante: c.votosPorVotante, habilitada: c.habilitada, iniciaEn: c.iniciaEn.slice(0,16), terminaEn: c.terminaEn.slice(0,16), candidatos: c.candidatos.map(x => x.engineerId || '') })
+    // Convert ISO (UTC) to local datetime-local value preserving the original local time user entered
+    const toLocalInput = (iso: string) => {
+      if (!iso) return ''
+      const d = new Date(iso)
+      if (isNaN(d.getTime())) return ''
+      // Adjust by timezone offset so that displayed value matches original local entry
+      const tzAdj = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      return tzAdj.toISOString().slice(0,16)
+    }
+    setForm({
+      titulo: c.titulo,
+      descripcion: c.descripcion ?? '',
+      votosPorVotante: c.votosPorVotante,
+      habilitada: c.habilitada,
+      iniciaEn: toLocalInput(c.iniciaEn),
+      terminaEn: toLocalInput(c.terminaEn),
+      candidatos: c.candidatos.map(x => ({ engineerId: x.engineerId || '', bio: x.bio || '' }))
+    })
     setEditCandLabels(c.candidatos.map(x => x.nombre))
     setShow(true)
   }
@@ -147,20 +185,25 @@ export default function AdminCampaigns() {
   function updateCand(i: number, v: string) {
     console.log('[AdminCampaigns] updateCand', { index: i, value: v })
     const arr = [...form.candidatos]
-    arr[i] = v
+    arr[i] = { ...(arr[i] || {}), engineerId: v }
     setForm({ ...form, candidatos: arr })
   }
-  function addCand() { setForm({ ...form, candidatos: [...form.candidatos, ''] }) }
+  function updateCandBio(i: number, v: string) {
+    const arr = [...form.candidatos]
+    arr[i] = { ...(arr[i] || {}), bio: v }
+    setForm({ ...form, candidatos: arr })
+  }
+  function addCand() { setForm({ ...form, candidatos: [...form.candidatos, { engineerId: '', bio: '' }] }) }
   function rmCand(i: number) { setForm({ ...form, candidatos: form.candidatos.filter((_: any, idx: number) => idx !== i) }) }
 
   async function save() {
-    const selected = form.candidatos.filter((x: string) => x && x.trim())
+    const selected = form.candidatos.filter((x: any) => x && String(x.engineerId || '').trim())
     if (selected.length === 0) {
       alert('Debe seleccionar al menos un candidato (ingeniero)')
       return
     }
     // Prevent duplicates
-    const uniq = Array.from(new Set(selected))
+    const uniq = Array.from(new Set(selected.map((x: any) => String(x.engineerId))))
     if (uniq.length !== selected.length) {
       alert('Hay candidatos repetidos. Por favor, elimine duplicados.')
       return
@@ -173,7 +216,7 @@ export default function AdminCampaigns() {
       habilitada: !!form.habilitada,
       iniciaEn: new Date(form.iniciaEn).toISOString(),
       terminaEn: new Date(form.terminaEn).toISOString(),
-      candidatos: selected.map((id: string) => ({ engineerId: id }))
+      candidatos: selected.map((x: any) => ({ engineerId: String(x.engineerId), bio: String(x.bio || '').trim() || undefined }))
     }
   const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
     let res: Response
@@ -232,6 +275,9 @@ export default function AdminCampaigns() {
         <Button size="sm" onClick={openCreate}>Nueva campaña</Button>
       </div>
       <Row>
+        {items.length === 0 && !loading && (
+          <div className="text-muted mb-3">No hay campañas o hubo un error al cargarlas.</div>
+        )}
         {items.map(c => (
           <Col md={6} key={c.id} className="mb-3">
             <Card>
@@ -302,10 +348,12 @@ export default function AdminCampaigns() {
             <Form.Check type="switch" label="Habilitada" checked={!!form.habilitada} onChange={e => setForm({ ...form, habilitada: e.target.checked })} />
             <div>
               <Form.Label className="mb-2">Candidatos</Form.Label>
-              {form.candidatos.map((c: string, i: number) => (
+              {form.candidatos.map((c: any, i: number) => (
                 <div key={i} className="d-flex align-items-start gap-2 mb-2 w-100">
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <EngineerTypeahead value={c} onChange={v => updateCand(i, v)} initialLabel={editCandLabels[i]} headers={authHeader as HeadersInit} />
+                    <EngineerTypeahead value={c.engineerId} onChange={v => updateCand(i, v)} initialLabel={editCandLabels[i]} headers={authHeader as HeadersInit} />
+                    <Form.Text muted>Descripción (opcional)</Form.Text>
+                    <Form.Control as="textarea" rows={2} value={c.bio || ''} onChange={e => updateCandBio(i, e.target.value)} placeholder="Ej. Experto en infraestructura, 15 años de experiencia…" className="mt-1" />
                   </div>
                   <Button size="sm" variant="outline-danger" onClick={() => rmCand(i)}>Quitar</Button>
                 </div>

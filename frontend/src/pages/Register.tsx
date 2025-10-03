@@ -58,16 +58,19 @@ export default function Register() {
     }
     try {
       setSubmitting(true)
-      const res = await fetch(`${API}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error || 'Error al registrar')
-        return
-      }
+          const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+          let data: any = null
+          try {
+            // Intentar parsear solo si hay contenido
+            const text = await res.text()
+            if (text) data = JSON.parse(text)
+          } catch (e) {
+            console.warn('Fallo parseando respuesta de registro', e)
+          }
+          if (!res.ok) {
+            setError((data && data.error) || 'Error de registro')
+            return
+          }
       setOk(true)
     } catch (err: any) {
       setError(err?.message || 'Error de red')

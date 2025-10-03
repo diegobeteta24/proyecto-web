@@ -72,72 +72,81 @@ const registerSchema = z.object({
 })
 
 authRouter.post('/register', async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body ?? {})
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' })
-  }
-  const { colegiado, nombre, email, dpi, fechaNacimiento, password } = parsed.data
-  const fechaISO = normalizeDateToISO(String(fechaNacimiento))
-  if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
-  const pool = await getPool()
-  // Must be in engineers roster and active
-  const [[eng]]: any = await pool.query("SELECT id, activo, nombre, email as e_email, dpi as e_dpi, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') as e_fn, password_hash FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
-  if (!eng) return res.status(403).json({ error: 'Colegiado no autorizado para registrarse' })
-  if (!eng.activo) return res.status(403).json({ error: 'Colegiado inactivo. Contacta al administrador.' })
-  // Case-insensitive, whitespace-normalized match on name
-  if (normalizeNameForCompare(String(eng.nombre)) !== normalizeNameForCompare(String(nombre))) {
-    return res.status(400).json({ error: 'El nombre no coincide con el padrón' })
-  }
-  if (eng.password_hash) return res.status(409).json({ error: 'El colegiado ya tiene una cuenta' })
-  // Enforce DPI and DOB must already exist on roster and match
-  if (!eng.e_dpi || !eng.e_fn) return res.status(400).json({ error: 'Datos del padrón incompletos (DPI o fecha de nacimiento faltan). Contacta al administrador.' })
-  if (String(eng.e_dpi) !== String(dpi)) return res.status(400).json({ error: 'DPI no coincide con el padrón' })
-  if (String(eng.e_fn) !== String(fechaISO)) return res.status(400).json({ error: 'Fecha de nacimiento no coincide con el padrón' })
-  // Prevent duplicates across engineers for email/dpi except this colegiado
-  const [[dupEmail]]: any = await pool.query('SELECT id FROM engineers WHERE email=? AND colegiado<>? LIMIT 1', [email, colegiado])
-  if (dupEmail) return res.status(409).json({ error: 'El correo ya está registrado' })
-  const [[dupDpi]]: any = await pool.query('SELECT id FROM engineers WHERE dpi=? AND colegiado<>? LIMIT 1', [dpi, colegiado])
-  if (dupDpi) return res.status(409).json({ error: 'El DPI ya está registrado' })
-  const passwordHash = await bcrypt.hash(password, 10)
+  const started = Date.now()
   try {
-    await pool.query(
-      'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
-      [nombre ?? eng.nombre, email, dpi, fechaISO, passwordHash, colegiado]
-    )
-    return res.json({ ok: true })
-  } catch (err: any) {
-    if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
-      const msg = String(err.sqlMessage || '')
-      if (msg.includes('email')) return res.status(409).json({ error: 'El correo ya está registrado' })
-      if (msg.includes('dpi')) return res.status(409).json({ error: 'El DPI ya está registrado' })
-      return res.status(409).json({ error: 'Registro duplicado' })
+    const parsed = registerSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' })
     }
-    return res.status(500).json({ error: 'No se pudo registrar' })
+    const { colegiado, nombre, email, dpi, fechaNacimiento, password } = parsed.data
+    const fechaISO = normalizeDateToISO(String(fechaNacimiento))
+    if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
+    const pool = await getPool()
+    const [[eng]]: any = await pool.query("SELECT id, activo, nombre, email as e_email, dpi as e_dpi, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') as e_fn, password_hash FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
+    if (!eng) return res.status(403).json({ error: 'Colegiado no autorizado para registrarse' })
+    if (!eng.activo) return res.status(403).json({ error: 'Colegiado inactivo. Contacta al administrador.' })
+    if (normalizeNameForCompare(String(eng.nombre)) !== normalizeNameForCompare(String(nombre))) {
+      return res.status(400).json({ error: 'El nombre no coincide con el padrón' })
+    }
+    if (eng.password_hash) return res.status(409).json({ error: 'El colegiado ya tiene una cuenta' })
+    if (!eng.e_dpi || !eng.e_fn) return res.status(400).json({ error: 'Datos del padrón incompletos (DPI o fecha de nacimiento faltan). Contacta al administrador.' })
+    if (String(eng.e_dpi) !== String(dpi)) return res.status(400).json({ error: 'DPI no coincide con el padrón' })
+    if (String(eng.e_fn) !== String(fechaISO)) return res.status(400).json({ error: 'Fecha de nacimiento no coincide con el padrón' })
+    const [[dupEmail]]: any = await pool.query('SELECT id FROM engineers WHERE email=? AND colegiado<>? LIMIT 1', [email, colegiado])
+    if (dupEmail) return res.status(409).json({ error: 'El correo ya está registrado' })
+    const [[dupDpi]]: any = await pool.query('SELECT id FROM engineers WHERE dpi=? AND colegiado<>? LIMIT 1', [dpi, colegiado])
+    if (dupDpi) return res.status(409).json({ error: 'El DPI ya está registrado' })
+    const passwordHash = await bcrypt.hash(password, 10)
+    try {
+      await pool.query(
+        'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
+        [nombre ?? eng.nombre, email, dpi, fechaISO, passwordHash, colegiado]
+      )
+      console.info('Registro exitoso', { colegiado, engineerId: eng.id, ms: Date.now() - started })
+      return res.json({ ok: true })
+    } catch (err: any) {
+      if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
+        const msg = String(err.sqlMessage || '')
+        if (msg.includes('email')) return res.status(409).json({ error: 'El correo ya está registrado' })
+        if (msg.includes('dpi')) return res.status(409).json({ error: 'El DPI ya está registrado' })
+        return res.status(409).json({ error: 'Registro duplicado' })
+      }
+      console.error('Fallo al actualizar engineer para registro', { colegiado, message: err?.message, code: err?.code })
+      return res.status(500).json({ error: 'No se pudo registrar' })
+    }
+  } catch (outer: any) {
+    console.error('Error inesperado en /auth/register', { body: req.body, message: outer?.message, stack: outer?.stack })
+    return res.status(500).json({ error: 'Error interno' })
   }
 })
 
 // Voter login
 authRouter.post('/login', async (req, res) => {
-  const { colegiado, dpi, fechaNacimiento, password } = req.body ?? {}
-  if (!colegiado || !dpi || !fechaNacimiento || !password) {
-    return res.status(400).json({ error: 'Campos requeridos faltantes' })
+  try {
+    const { colegiado, dpi, fechaNacimiento, password } = req.body ?? {}
+    if (!colegiado || !dpi || !fechaNacimiento || !password) {
+      return res.status(400).json({ error: 'Campos requeridos faltantes' })
+    }
+    const fechaISO = normalizeDateToISO(String(fechaNacimiento))
+    if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
+    const pool = await getPool()
+    // Must be in engineers roster and active
+    const [[eng]]: any = await pool.query("SELECT id, colegiado, nombre, password_hash, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') AS fn, dpi, activo FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
+    if (!eng) return res.status(401).json({ error: 'Credenciales inválidas' })
+    if (!eng.activo) return res.status(403).json({ error: 'Usuario inactivo' })
+    if (!(await isColegiadoActivo(String(eng.colegiado)))) return res.status(403).json({ error: 'Colegiado no elegible' })
+    const cleanDBDpi = String(eng.dpi ?? '').replace(/\D+/g, '')
+    const cleanReqDpi = String(dpi ?? '').replace(/\D+/g, '')
+    if (cleanDBDpi !== cleanReqDpi) return res.status(401).json({ error: 'Credenciales inválidas' })
+    if (String(eng.fn ?? '') !== String(fechaISO)) return res.status(401).json({ error: 'Credenciales inválidas' })
+    if (!eng.password_hash) return res.status(401).json({ error: 'Credenciales inválidas' })
+    const ok = await bcrypt.compare(password, String(eng.password_hash))
+    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' })
+    const token = signToken({ id: String(eng.id), role: 'voter', colegiado: eng.colegiado, nombre: eng.nombre })
+    return res.json({ token })
+  } catch (e) {
+    return res.status(500).json({ error: 'Error al iniciar sesión' })
   }
-  const fechaISO = normalizeDateToISO(String(fechaNacimiento))
-  if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
-  const pool = await getPool()
-  // Must be in engineers roster and active
-  const [[eng]]: any = await pool.query("SELECT id, colegiado, nombre, password_hash, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') AS fn, dpi, activo FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
-  if (!eng) return res.status(401).json({ error: 'Credenciales inválidas' })
-  if (!eng.activo) return res.status(403).json({ error: 'Usuario inactivo' })
-  if (!(await isColegiadoActivo(String(eng.colegiado)))) return res.status(403).json({ error: 'Colegiado no elegible' })
-  const cleanDBDpi = String(eng.dpi ?? '').replace(/\D+/g, '')
-  const cleanReqDpi = String(dpi ?? '').replace(/\D+/g, '')
-  if (cleanDBDpi !== cleanReqDpi) return res.status(401).json({ error: 'Credenciales inválidas' })
-  if (String(eng.fn ?? '') !== String(fechaISO)) return res.status(401).json({ error: 'Credenciales inválidas' })
-  const ok = await bcrypt.compare(password, eng.password_hash)
-  if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' })
-  const token = signToken({ id: String(eng.id), role: 'voter', colegiado: eng.colegiado, nombre: eng.nombre })
-  return res.json({ token })
 })
 
 // Admin login (use engineers table)
