@@ -38,10 +38,20 @@ async function main() {
     const pwd = it.password && String(it.password).length >= 8 ? String(it.password) : genPwd()
     const hash = await bcrypt.hash(pwd, 10)
     try {
-      await pool.query(
-        'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
-        [it.nombre ?? eng.nombre, email || null, dpi, fechaISO, hash, colegiado]
+      const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+        process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
       )
+      if (isPg) {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=true WHERE colegiado=?',
+          [it.nombre ?? eng.nombre, email || null, dpi, fechaISO, hash, colegiado]
+        )
+      } else {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
+          [it.nombre ?? eng.nombre, email || null, dpi, fechaISO, hash, colegiado]
+        )
+      }
       results.push({ colegiado, status: 'created', password: pwd })
     } catch (err: any) {
       if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {

@@ -56,10 +56,39 @@ function normalizeDateToISO(dateStr: string): string | null {
 
 function normalizeNameForCompare(s: string): string {
   if (!s) return ''
-  return s
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLocaleUpperCase('es-ES')
+  // Remove extra spaces, trim
+  let out = s.replace(/\s+/g, ' ').trim()
+  // Normalize accents (diacritics) so 'GARCIA' == 'GARCÍA'
+  try {
+    out = out.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  } catch {}
+  return out.toLocaleUpperCase('es-ES')
+}
+
+function formatDateYMD(val: any): string | null {
+  if (!val) return null
+  // If it's already a Date
+  if (val instanceof Date) {
+    const yyyy = val.getFullYear()
+    const mm = String(val.getMonth() + 1).padStart(2, '0')
+    const dd = String(val.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  // If it's a string, try to normalize
+  if (typeof val === 'string') {
+    // Common cases: 'YYYY-MM-DD', full ISO, or with time
+    const isoLike = val.match(/^\d{4}-\d{2}-\d{2}/)
+    if (isoLike) return val.slice(0, 10)
+    const d = new Date(val)
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      return `${yyyy}-${mm}-${dd}`
+    }
+    return null
+  }
+  return null
 }
 
 const registerSchema = z.object({
@@ -82,26 +111,37 @@ authRouter.post('/register', async (req, res) => {
     const fechaISO = normalizeDateToISO(String(fechaNacimiento))
     if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
     const pool = await getPool()
-    const [[eng]]: any = await pool.query("SELECT id, activo, nombre, email as e_email, dpi as e_dpi, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') as e_fn, password_hash FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
+  const [[eng]]: any = await pool.query("SELECT id, activo, nombre, email as e_email, dpi as e_dpi, fecha_nacimiento as e_fn, password_hash FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
     if (!eng) return res.status(403).json({ error: 'Colegiado no autorizado para registrarse' })
     if (!eng.activo) return res.status(403).json({ error: 'Colegiado inactivo. Contacta al administrador.' })
     if (normalizeNameForCompare(String(eng.nombre)) !== normalizeNameForCompare(String(nombre))) {
       return res.status(400).json({ error: 'El nombre no coincide con el padrón' })
     }
     if (eng.password_hash) return res.status(409).json({ error: 'El colegiado ya tiene una cuenta' })
-    if (!eng.e_dpi || !eng.e_fn) return res.status(400).json({ error: 'Datos del padrón incompletos (DPI o fecha de nacimiento faltan). Contacta al administrador.' })
-    if (String(eng.e_dpi) !== String(dpi)) return res.status(400).json({ error: 'DPI no coincide con el padrón' })
-    if (String(eng.e_fn) !== String(fechaISO)) return res.status(400).json({ error: 'Fecha de nacimiento no coincide con el padrón' })
+  const engFn = formatDateYMD(eng.e_fn)
+  if (!eng.e_dpi || !engFn) return res.status(400).json({ error: 'Datos del padrón incompletos (DPI o fecha de nacimiento faltan). Contacta al administrador.' })
+  if (String(eng.e_dpi) !== String(dpi)) return res.status(400).json({ error: 'DPI no coincide con el padrón' })
+  if (String(engFn) !== String(fechaISO)) return res.status(400).json({ error: 'Fecha de nacimiento no coincide con el padrón' })
     const [[dupEmail]]: any = await pool.query('SELECT id FROM engineers WHERE email=? AND colegiado<>? LIMIT 1', [email, colegiado])
     if (dupEmail) return res.status(409).json({ error: 'El correo ya está registrado' })
     const [[dupDpi]]: any = await pool.query('SELECT id FROM engineers WHERE dpi=? AND colegiado<>? LIMIT 1', [dpi, colegiado])
     if (dupDpi) return res.status(409).json({ error: 'El DPI ya está registrado' })
     const passwordHash = await bcrypt.hash(password, 10)
     try {
-      await pool.query(
-        'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
-        [nombre ?? eng.nombre, email, dpi, fechaISO, passwordHash, colegiado]
+      const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+        process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
       )
+      if (isPg) {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=true WHERE colegiado=?',
+          [nombre ?? eng.nombre, email, dpi, fechaISO, passwordHash, colegiado]
+        )
+      } else {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
+          [nombre ?? eng.nombre, email, dpi, fechaISO, passwordHash, colegiado]
+        )
+      }
       console.info('Registro exitoso', { colegiado, engineerId: eng.id, ms: Date.now() - started })
       return res.json({ ok: true })
     } catch (err: any) {
@@ -131,14 +171,15 @@ authRouter.post('/login', async (req, res) => {
     if (!fechaISO) return res.status(400).json({ error: 'Fecha de nacimiento inválida' })
     const pool = await getPool()
     // Must be in engineers roster and active
-    const [[eng]]: any = await pool.query("SELECT id, colegiado, nombre, password_hash, DATE_FORMAT(fecha_nacimiento, '%Y-%m-%d') AS fn, dpi, activo FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
+  const [[eng]]: any = await pool.query("SELECT id, colegiado, nombre, password_hash, fecha_nacimiento AS fn, dpi, activo FROM engineers WHERE colegiado=? LIMIT 1", [colegiado])
     if (!eng) return res.status(401).json({ error: 'Credenciales inválidas' })
     if (!eng.activo) return res.status(403).json({ error: 'Usuario inactivo' })
     if (!(await isColegiadoActivo(String(eng.colegiado)))) return res.status(403).json({ error: 'Colegiado no elegible' })
     const cleanDBDpi = String(eng.dpi ?? '').replace(/\D+/g, '')
     const cleanReqDpi = String(dpi ?? '').replace(/\D+/g, '')
     if (cleanDBDpi !== cleanReqDpi) return res.status(401).json({ error: 'Credenciales inválidas' })
-    if (String(eng.fn ?? '') !== String(fechaISO)) return res.status(401).json({ error: 'Credenciales inválidas' })
+  const engFn = formatDateYMD(eng.fn)
+  if (String(engFn ?? '') !== String(fechaISO)) return res.status(401).json({ error: 'Credenciales inválidas' })
     if (!eng.password_hash) return res.status(401).json({ error: 'Credenciales inválidas' })
     const ok = await bcrypt.compare(password, String(eng.password_hash))
     if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' })
@@ -199,10 +240,16 @@ authRouter.post('/admin/engineers/sync', requireAuth, requireRole('admin'), asyn
   // Expect body: { items: [{ colegiado, nombre, activo, dpi?, fechaNacimiento? }, ...] }
   const { items } = req.body ?? {}
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Formato inválido' })
-  const pool = await getPool()
-  const conn = await pool.getConnection()
+  const pool: any = await getPool()
+  const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+    process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+  )
+  let conn: any = null
   try {
-    await conn.beginTransaction()
+    if (!isPg) {
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+    }
     for (const it of items) {
       const colegiado = String(it.colegiado ?? '').trim()
       const nombre = String(it.nombre ?? '').trim()
@@ -210,19 +257,32 @@ authRouter.post('/admin/engineers/sync', requireAuth, requireRole('admin'), asyn
       const dpi = it.dpi ? String(it.dpi).trim() : null
       const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
       if (!colegiado || !nombre) continue
-      await conn.query(
-        `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
-        [colegiado, nombre, activo, dpi, fecha]
-      )
+      if (isPg) {
+        await pool.query(
+          `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (colegiado) DO UPDATE SET
+             nombre = EXCLUDED.nombre,
+             activo = EXCLUDED.activo,
+             dpi = COALESCE(EXCLUDED.dpi, engineers.dpi),
+             fecha_nacimiento = COALESCE(EXCLUDED.fecha_nacimiento, engineers.fecha_nacimiento)`,
+          [colegiado, nombre, !!activo, dpi, fecha]
+        )
+      } else {
+        await conn.query(
+          `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
+          [colegiado, nombre, activo, dpi, fecha]
+        )
+      }
     }
-    await conn.commit()
+    if (!isPg) await conn.commit()
     return res.json({ ok: true, count: items.length })
   } catch (e) {
-    try { await conn.rollback() } catch {}
+    if (!isPg && conn) { try { await conn.rollback() } catch {} }
     return res.status(500).json({ error: 'No se pudo sincronizar el padrón' })
   } finally {
-    conn.release()
+    if (!isPg && conn) conn.release()
   }
 })
 
@@ -256,10 +316,20 @@ authRouter.post('/admin/engineers/provision', requireAuth, requireRole('admin'),
     const pwd = it.password && String(it.password).length >= 8 ? String(it.password) : genPwd()
     const hash = await bcrypt.hash(pwd, 10)
     try {
-      await pool.query(
-        'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
-        [it.nombre ?? eng.nombre, email, dpi, fechaISO, hash, colegiado]
+      const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+        process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
       )
+      if (isPg) {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=true WHERE colegiado=?',
+          [it.nombre ?? eng.nombre, email, dpi, fechaISO, hash, colegiado]
+        )
+      } else {
+        await pool.query(
+          'UPDATE engineers SET nombre=?, email=?, dpi=?, fecha_nacimiento=?, password_hash=?, activo=1 WHERE colegiado=?',
+          [it.nombre ?? eng.nombre, email, dpi, fechaISO, hash, colegiado]
+        )
+      }
       results.push({ colegiado, status: 'created', password: pwd })
     } catch (err: any) {
       if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {

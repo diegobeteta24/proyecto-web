@@ -52,17 +52,40 @@ app.listen(PORT, () => {
     // Upsert demo voter into engineers to ensure known credentials exist
     const hash = await bcrypt.hash('Voter123!', 10)
     console.log('Ensuring demo voter in engineers…')
-    await pool.query(
-      'INSERT INTO engineers (colegiado, nombre, email, dpi, fecha_nacimiento, password_hash, activo) VALUES (?, ?, ?, ?, ?, ?, 1)\n'
-      + 'ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), email=VALUES(email), password_hash=VALUES(password_hash), fecha_nacimiento=VALUES(fecha_nacimiento), activo=1',
-      ['12345', 'Votante Demo', 'votante@example.com', '1234567890123', '1990-01-01', hash]
+    const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+      process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
     )
+    if (isPg) {
+      // PostgreSQL upsert using ON CONFLICT
+      await pool.query(
+        `INSERT INTO engineers (colegiado, nombre, email, dpi, fecha_nacimiento, password_hash, activo, is_admin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (colegiado) DO UPDATE SET
+           nombre = EXCLUDED.nombre,
+           email = EXCLUDED.email,
+           password_hash = EXCLUDED.password_hash,
+           fecha_nacimiento = EXCLUDED.fecha_nacimiento,
+           activo = true;`,
+        ['12345', 'Votante Demo', 'votante@example.com', '1234567890123', '1990-01-01', hash, true, false]
+      )
+    } else {
+      // MySQL upsert style
+      await pool.query(
+        'INSERT INTO engineers (colegiado, nombre, email, dpi, fecha_nacimiento, password_hash, activo) VALUES (?, ?, ?, ?, ?, ?, 1)\n'
+        + 'ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), email=VALUES(email), password_hash=VALUES(password_hash), fecha_nacimiento=VALUES(fecha_nacimiento), activo=1',
+        ['12345', 'Votante Demo', 'votante@example.com', '1234567890123', '1990-01-01', hash]
+      )
+    }
     // Promote requested admin (dev convenience) and ensure password if missing
     try {
       const adminName = 'JOSE MIGUEL VILLATORO HIDALGO'
       const defaultPwd = 'Admin123!'
       const hash = await bcrypt.hash(defaultPwd, 10)
-      await pool.query('UPDATE engineers SET is_admin=1, activo=1 WHERE nombre=?', [adminName])
+      if (isPg) {
+        await pool.query('UPDATE engineers SET is_admin=true, activo=true WHERE nombre=?', [adminName])
+      } else {
+        await pool.query('UPDATE engineers SET is_admin=1, activo=1 WHERE nombre=?', [adminName])
+      }
       await pool.query(
         'UPDATE engineers SET password_hash = COALESCE(password_hash, ?), email = COALESCE(email, ?) WHERE nombre=?',
         [hash, 'admin@example.com', adminName]
@@ -74,17 +97,31 @@ app.listen(PORT, () => {
       const now = new Date()
       const start = new Date(now.getTime() - 5 * 60 * 1000)
       const end = new Date(now.getTime() + 60 * 60 * 1000)
-      const [ins]: any = await pool.query(
-        'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?)',
-        ['Elección Junta Directiva 2025', 'Vota por tu planilla favorita', 1, 1, start, end]
-      )
-      const campaignId = ins.insertId
+      let campaignId: number
+      if (isPg) {
+        const [rows]: any = await pool.query(
+          'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+          ['Elección Junta Directiva 2025', 'Vota por tu planilla favorita', 1, true, start, end]
+        )
+        campaignId = rows[0].id
+      } else {
+        const [ins]: any = await pool.query(
+          'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?)',
+          ['Elección Junta Directiva 2025', 'Vota por tu planilla favorita', 1, 1, start, end]
+        )
+        campaignId = ins.insertId
+      }
       const candNames = ['Lista A', 'Lista B', 'Lista C']
       for (const name of candNames) {
-        const [insC]: any = await pool.query('INSERT INTO candidates (nombre) VALUES (?)', [name])
-        await pool.query('INSERT INTO campaign_candidates (campaign_id, candidate_id) VALUES (?, ?)', [campaignId, insC.insertId])
+        if (isPg) {
+          const [rowsC]: any = await pool.query('INSERT INTO candidates (nombre) VALUES (?) RETURNING id', [name])
+            await pool.query('INSERT INTO campaign_candidates (campaign_id, candidate_id) VALUES (?, ?)', [campaignId, rowsC[0].id])
+        } else {
+          const [insC]: any = await pool.query('INSERT INTO candidates (nombre) VALUES (?)', [name])
+          await pool.query('INSERT INTO campaign_candidates (campaign_id, candidate_id) VALUES (?, ?)', [campaignId, insC.insertId])
+        }
       }
-      console.log('Seeded demo campaign in MySQL')
+      console.log(`Seeded demo campaign in ${isPg ? 'PostgreSQL' : 'MySQL'}`)
     }
   }).catch(err => console.error('DB migrate error', err))
   console.log(`API listening on http://localhost:${PORT}`)

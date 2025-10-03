@@ -1,7 +1,12 @@
 // Flexible DB layer: support MySQL (default) or Postgres (Render) via env DB_CLIENT=pg
 // For PG we use node-postgres (pg) with a minimal wrapper exposing query().
 
-const DB_CLIENT = (process.env.DB_CLIENT || '').toLowerCase() === 'pg' ? 'pg' : 'mysql'
+let _resolvedClient = (process.env.DB_CLIENT || '').trim().toLowerCase()
+let DB_CLIENT: 'pg' | 'mysql' = _resolvedClient === 'pg' ? 'pg' : 'mysql'
+// Auto-detect by DATABASE_URL if not explicitly pg but URL is postgres
+if (DB_CLIENT !== 'pg' && process.env.DATABASE_URL && /^postgres(ql)?:\/\//i.test(String(process.env.DATABASE_URL))) {
+  DB_CLIENT = 'pg'
+}
 
 let _mysql: any = null
 let _pg: any = null
@@ -42,7 +47,13 @@ export async function getPool(): Promise<SimplePool> {
     }
     cachedPool = {
       query: async (sql: string, params?: any[]) => {
-        const res = await pool.query(sql, params)
+        let finalSql = sql
+        if (params && params.length) {
+          // Convert '?' placeholders to $1, $2 ... for pg
+            let i = 0
+            finalSql = sql.replace(/\?/g, () => '$' + (++i))
+        }
+        const res = await pool.query(finalSql, params)
         // mimic mysql2 response shape [rows, fields]
         return [res.rows as any[], res] as any
       },
@@ -63,6 +74,9 @@ export async function getPool(): Promise<SimplePool> {
 
 export async function migrate() {
   const pool: any = await getPool()
+  try {
+    console.log('[DB] migrate start', { client: DB_CLIENT, databaseUrl: !!process.env.DATABASE_URL })
+  } catch {}
   // NOTE: voters table has been merged into engineers. We keep migration helpers below to move data if an old voters table exists.
 
   // campaigns
@@ -247,61 +261,56 @@ export async function migrate() {
   }
 
   // Migration: if old voters table exists, move credentials into engineers and retarget votes
-  try {
-    const [tables]: any = await pool.query("SHOW TABLES LIKE 'voters'")
-    if (Array.isArray(tables) && tables.length > 0) {
-      // Upsert missing engineers from voters
-      await pool.query(`
-        INSERT INTO engineers (colegiado, nombre, email, dpi, fecha_nacimiento, password_hash, activo)
-        SELECT v.colegiado, v.nombre, v.email, v.dpi, v.fecha_nacimiento, v.password_hash, v.activo
-        FROM voters v
-        LEFT JOIN engineers e ON e.colegiado = v.colegiado
-        WHERE e.id IS NULL;
-      `)
-      // Update existing engineers with voter credentials where missing
-      await pool.query(`
-        UPDATE engineers e
-        INNER JOIN voters v ON v.colegiado = e.colegiado
-        SET e.email = COALESCE(e.email, v.email),
-            e.dpi = COALESCE(e.dpi, v.dpi),
-            e.fecha_nacimiento = COALESCE(e.fecha_nacimiento, v.fecha_nacimiento),
-            e.password_hash = COALESCE(e.password_hash, v.password_hash),
-            e.activo = CASE WHEN e.activo IS NULL THEN v.activo ELSE e.activo END;
-      `)
-      // Rebuild votes table to reference engineers, remapping voter ids via colegiado
-      // First, create a temp table with correct FKs
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS votes_new (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          campaign_id INT NOT NULL,
-          candidate_id INT NOT NULL,
-          voter_id INT NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-          FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
-          FOREIGN KEY (voter_id) REFERENCES engineers(id) ON DELETE CASCADE,
-          UNIQUE KEY uq_vote_once (campaign_id, voter_id, candidate_id),
-          INDEX (campaign_id, voter_id),
-          INDEX (campaign_id, candidate_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-      `)
-      // Copy rows with id remap (voters.id -> engineers.id via colegiado)
-      await pool.query(`
-        INSERT IGNORE INTO votes_new (id, campaign_id, candidate_id, voter_id, created_at)
-        SELECT vts.id, vts.campaign_id, vts.candidate_id, e.id as voter_id, vts.created_at
-        FROM votes vts
-        INNER JOIN voters vt ON vt.id = vts.voter_id
-        INNER JOIN engineers e ON e.colegiado = vt.colegiado;
-      `)
-      // Replace old votes table
-      await pool.query('RENAME TABLE votes TO votes_old')
-      await pool.query('RENAME TABLE votes_new TO votes')
-      try { await pool.query('DROP TABLE votes_old') } catch {}
-      // Finally, drop old voters table
-      try { await pool.query('DROP TABLE voters') } catch {}
+  if (DB_CLIENT !== 'pg') {
+    try {
+      const [tables]: any = await pool.query("SHOW TABLES LIKE 'voters'")
+      if (Array.isArray(tables) && tables.length > 0) {
+        await pool.query(`
+          INSERT INTO engineers (colegiado, nombre, email, dpi, fecha_nacimiento, password_hash, activo)
+          SELECT v.colegiado, v.nombre, v.email, v.dpi, v.fecha_nacimiento, v.password_hash, v.activo
+          FROM voters v
+          LEFT JOIN engineers e ON e.colegiado = v.colegiado
+          WHERE e.id IS NULL;
+        `)
+        await pool.query(`
+          UPDATE engineers e
+          INNER JOIN voters v ON v.colegiado = e.colegiado
+          SET e.email = COALESCE(e.email, v.email),
+              e.dpi = COALESCE(e.dpi, v.dpi),
+              e.fecha_nacimiento = COALESCE(e.fecha_nacimiento, v.fecha_nacimiento),
+              e.password_hash = COALESCE(e.password_hash, v.password_hash),
+              e.activo = CASE WHEN e.activo IS NULL THEN v.activo ELSE e.activo END;
+        `)
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS votes_new (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            campaign_id INT NOT NULL,
+            candidate_id INT NOT NULL,
+            voter_id INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+            FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+            FOREIGN KEY (voter_id) REFERENCES engineers(id) ON DELETE CASCADE,
+            UNIQUE KEY uq_vote_once (campaign_id, voter_id, candidate_id),
+            INDEX (campaign_id, voter_id),
+            INDEX (campaign_id, candidate_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `)
+        await pool.query(`
+          INSERT IGNORE INTO votes_new (id, campaign_id, candidate_id, voter_id, created_at)
+          SELECT vts.id, vts.campaign_id, vts.candidate_id, e.id as voter_id, vts.created_at
+          FROM votes vts
+          INNER JOIN voters vt ON vt.id = vts.voter_id
+          INNER JOIN engineers e ON e.colegiado = vt.colegiado;
+        `)
+        await pool.query('RENAME TABLE votes TO votes_old')
+        await pool.query('RENAME TABLE votes_new TO votes')
+        try { await pool.query('DROP TABLE votes_old') } catch {}
+        try { await pool.query('DROP TABLE voters') } catch {}
+      }
+    } catch (e) {
+      // ignore legacy migration errors
     }
-  } catch (e) {
-    // If migration fails, leave existing data; log on caller
   }
 }
 

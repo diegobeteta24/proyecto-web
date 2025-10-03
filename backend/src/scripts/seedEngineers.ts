@@ -16,33 +16,67 @@ async function main() {
     else throw new Error(`El archivo ${file} debe ser un arreglo JSON o { items: [] }`)
   }
   await migrate()
-  const pool = await getPool()
-  const conn = await pool.getConnection()
-  try {
-    await conn.beginTransaction()
-    let count = 0
-    for (const it of merged) {
-      const colegiado = String(it.colegiado ?? '').trim()
-      const nombre = String(it.nombre ?? '').trim()
-      const activo = it.activo ? 1 : 0
-      const dpi = it.dpi ? String(it.dpi).trim() : null
-      const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
-      if (!colegiado || !nombre) continue
-      await conn.query(
-        `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
-        [colegiado, nombre, activo, dpi, fecha]
-      )
-      count++
+  const pool: any = await getPool()
+  const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+    process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+  )
+  let count = 0
+  if (isPg) {
+    try {
+      await pool.query('BEGIN')
+      for (const it of merged) {
+        const colegiado = String(it.colegiado ?? '').trim()
+        const nombre = String(it.nombre ?? '').trim()
+        const activo = !!it.activo
+        const dpi = it.dpi ? String(it.dpi).trim() : null
+        const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
+        if (!colegiado || !nombre) continue
+        await pool.query(
+          `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (colegiado) DO UPDATE SET
+             nombre = EXCLUDED.nombre,
+             activo = EXCLUDED.activo,
+             dpi = COALESCE(EXCLUDED.dpi, engineers.dpi),
+             fecha_nacimiento = COALESCE(EXCLUDED.fecha_nacimiento, engineers.fecha_nacimiento)`,
+          [colegiado, nombre, activo, dpi, fecha]
+        )
+        count++
+      }
+      await pool.query('COMMIT')
+      console.log(`Seeded/updated ${count} engineers (PostgreSQL) from ${args.length} file(s)`) 
+    } catch (e) {
+      try { await pool.query('ROLLBACK') } catch {}
+      console.error('Seed error (pg)', e)
+      process.exit(1)
     }
-    await conn.commit()
-    console.log(`Seeded/updated ${count} engineers from ${args.length} file(s)`) 
-  } catch (e) {
-    try { await conn.rollback() } catch {}
-    console.error('Seed error', e)
-    process.exit(1)
-  } finally {
-    conn.release()
+  } else {
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+      for (const it of merged) {
+        const colegiado = String(it.colegiado ?? '').trim()
+        const nombre = String(it.nombre ?? '').trim()
+        const activo = it.activo ? 1 : 0
+        const dpi = it.dpi ? String(it.dpi).trim() : null
+        const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
+        if (!colegiado || !nombre) continue
+        await conn.query(
+          `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
+          [colegiado, nombre, activo, dpi, fecha]
+        )
+        count++
+      }
+      await conn.commit()
+      console.log(`Seeded/updated ${count} engineers (MySQL) from ${args.length} file(s)`) 
+    } catch (e) {
+      try { await conn.rollback() } catch {}
+      console.error('Seed error (mysql)', e)
+      process.exit(1)
+    } finally {
+      conn.release()
+    }
   }
 }
 
