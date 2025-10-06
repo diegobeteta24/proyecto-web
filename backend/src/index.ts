@@ -65,6 +65,24 @@ app.listen(PORT, '0.0.0.0', () => {
   // ensure DB is ready
   migrate().then(async () => {
     const pool = await getPool()
+    // Enforce all engineers active + ensure admin colegiado 19999 (idempotent) 
+    try {
+      await pool.query('UPDATE engineers SET activo=1');
+      const [[adminRow]]: any = await pool.query('SELECT id, is_admin FROM engineers WHERE colegiado=? LIMIT 1', ['19999'])
+      if (adminRow && !adminRow.is_admin) {
+        const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+          process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+        )
+        if (isPg) {
+          await pool.query('UPDATE engineers SET is_admin=true WHERE colegiado=?', ['19999'])
+        } else {
+          await pool.query('UPDATE engineers SET is_admin=1 WHERE colegiado=?', ['19999'])
+        }
+        console.log('[SEED] Promovido colegiado 19999 a admin')
+      }
+    } catch (e) {
+      console.warn('[SEED] No se pudo forzar activos/admin', (e as any)?.message)
+    }
     // Upsert demo voter into engineers to ensure known credentials exist
     const hash = await bcrypt.hash('Voter123!', 10)
     console.log('Ensuring demo voter in engineers…')

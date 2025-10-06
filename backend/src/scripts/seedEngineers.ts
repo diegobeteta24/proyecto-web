@@ -27,7 +27,8 @@ async function main() {
       for (const it of merged) {
         const colegiado = String(it.colegiado ?? '').trim()
         const nombre = String(it.nombre ?? '').trim()
-        const activo = !!it.activo
+        // Forzar todos activos independientemente del JSON
+        const activo = true
         const dpi = it.dpi ? String(it.dpi).trim() : null
         const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
         if (!colegiado || !nombre) continue
@@ -43,8 +44,10 @@ async function main() {
         )
         count++
       }
-      await pool.query('COMMIT')
-      console.log(`Seeded/updated ${count} engineers (PostgreSQL) from ${args.length} file(s)`) 
+  // Asegurar admin para colegiado 19999
+  await pool.query('UPDATE engineers SET is_admin=true, activo=true WHERE colegiado=?', ['19999'])
+  await pool.query('COMMIT')
+  console.log(`Seeded/updated ${count} engineers (PostgreSQL) from ${args.length} file(s) (19999 => admin)`) 
     } catch (e) {
       try { await pool.query('ROLLBACK') } catch {}
       console.error('Seed error (pg)', e)
@@ -57,7 +60,8 @@ async function main() {
       for (const it of merged) {
         const colegiado = String(it.colegiado ?? '').trim()
         const nombre = String(it.nombre ?? '').trim()
-        const activo = it.activo ? 1 : 0
+        // Forzar activos
+        const activo = 1
         const dpi = it.dpi ? String(it.dpi).trim() : null
         const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
         if (!colegiado || !nombre) continue
@@ -68,8 +72,9 @@ async function main() {
         )
         count++
       }
-      await conn.commit()
-      console.log(`Seeded/updated ${count} engineers (MySQL) from ${args.length} file(s)`) 
+  await conn.query('UPDATE engineers SET is_admin=1, activo=1 WHERE colegiado=?', ['19999'])
+  await conn.commit()
+  console.log(`Seeded/updated ${count} engineers (MySQL) from ${args.length} file(s) (19999 => admin)`) 
     } catch (e) {
       try { await conn.rollback() } catch {}
       console.error('Seed error (mysql)', e)
