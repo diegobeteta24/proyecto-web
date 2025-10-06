@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
-import { requireAuth, requireRole, AuthRequest } from '../middleware/auth'
-import { getPool } from '../db'
+import { requireAuth, requireRole, AuthRequest } from '../middleware/auth.js'
+import { getPool } from '../db.js'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 

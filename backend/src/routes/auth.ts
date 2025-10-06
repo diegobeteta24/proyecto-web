@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
-import { db } from '../store'
-import { signToken } from '../utils/jwt'
-import { getPool } from '../db'
+import { db } from '../store.js'
+import { signToken } from '../utils/jwt.js'
+import { getPool } from '../db.js'
 import { z } from 'zod'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 
 export const authRouter = Router()
 

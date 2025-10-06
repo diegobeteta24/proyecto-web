@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { migrate, getPool } from '../db'
+import { migrate, getPool } from '../db.js'
 
 async function main() {
   const args = process.argv.slice(2).filter(a => !a.startsWith('--'))

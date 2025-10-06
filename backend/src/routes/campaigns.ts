@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express'
-import { AuthRequest, requireAuth, requireRole, requireRoles } from '../middleware/auth'
-import { getPool } from '../db'
+import { AuthRequest, requireAuth, requireRole, requireRoles } from '../middleware/auth.js'
+import { getPool } from '../db.js'
 
 export const campaignsRouter = Router()
 

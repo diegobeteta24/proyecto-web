@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { Admin, Campaign, Candidate, Voter } from './types'
+import { Admin, Campaign, Candidate, Voter } from './types.js'
 
 const nowIso = () => new Date().toISOString()
 

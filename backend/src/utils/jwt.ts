@@ -1,5 +1,5 @@
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
-import { JwtUser } from '../types'
+import { JwtUser } from '../types.js'
 
 const secret: Secret = process.env.JWT_SECRET ?? 'dev-secret'
 const expiresIn: SignOptions['expiresIn'] = (process.env.JWT_EXPIRES ?? '1h') as SignOptions['expiresIn']
