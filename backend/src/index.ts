@@ -1,4 +1,19 @@
 import 'dotenv/config'
+// Boot diagnostics (antes de cualquier otra cosa)
+console.log('[BOOT] starting backend', {
+  node: process.version,
+  pid: process.pid,
+  dbClientEnv: process.env.DB_CLIENT,
+  hasDatabaseUrl: !!process.env.DATABASE_URL,
+  cwd: process.cwd(),
+  portEnv: process.env.PORT
+})
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[FATAL] Unhandled Rejection', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception', err)
+})
 import express, { Request, Response } from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -45,6 +60,7 @@ app.get('/favicon.ico', (req, res) => {
 })
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001
+console.log('[BOOT] configured PORT', PORT)
 app.listen(PORT, '0.0.0.0', () => {
   // ensure DB is ready
   migrate().then(async () => {
@@ -136,6 +152,8 @@ app.listen(PORT, '0.0.0.0', () => {
     } catch (e) {
       console.warn('[HTTP] No se pudo habilitar frontend build', (e as any)?.message)
     }
-  }).catch(err => console.error('DB migrate error', err))
+  }).catch(err => {
+    console.error('DB migrate error (continuing, server still up)', err)
+  })
   console.log(`API listening on 0.0.0.0:${PORT}`)
 })
