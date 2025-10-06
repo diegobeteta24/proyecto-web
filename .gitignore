@@ -23,6 +23,7 @@ coverage/
 **/.env.*
 backend/.env
 frontend/.env
+!.env.example
 
 # Editor/OS
 .vscode/

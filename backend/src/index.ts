@@ -45,7 +45,7 @@ app.get('/favicon.ico', (req, res) => {
 })
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   // ensure DB is ready
   migrate().then(async () => {
     const pool = await getPool()
@@ -123,6 +123,19 @@ app.listen(PORT, () => {
       }
       console.log(`Seeded demo campaign in ${isPg ? 'PostgreSQL' : 'MySQL'}`)
     }
+    // --- Servir frontend build (SPA) en producción ---
+    try {
+      const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist')
+      app.use(express.static(frontendDist))
+      // Fallback SPA (después de rutas /api )
+      app.get('*', (req, res) => {
+        if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not found' })
+        res.sendFile(path.join(frontendDist, 'index.html'))
+      })
+      console.log('[HTTP] Frontend build habilitado')
+    } catch (e) {
+      console.warn('[HTTP] No se pudo habilitar frontend build', (e as any)?.message)
+    }
   }).catch(err => console.error('DB migrate error', err))
-  console.log(`API listening on http://localhost:${PORT}`)
+  console.log(`API listening on 0.0.0.0:${PORT}`)
 })

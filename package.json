@@ -1,0 +1,9 @@
+{
+  "name": "proyecto-web",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "heroku-prebuild": "npm --prefix frontend ci && npm --prefix backend ci",
+    "heroku-postbuild": "npm --prefix frontend run build && npm --prefix backend run build"
+  }
+}
