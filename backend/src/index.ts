@@ -68,6 +68,61 @@ app.listen(PORT, '0.0.0.0', () => {
     const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
       process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
     )
+    // Seed initial engineers roster from bundled JSON if table is empty
+    try {
+      const [[{ c: engCount }]]: any = await pool.query('SELECT COUNT(*) AS c FROM engineers')
+      if (Number(engCount) === 0) {
+        console.log('[SEED] engineers vacío, intentando cargar seeds/engineers.import.json')
+        const fs = await import('node:fs/promises')
+        const rosterPath = path.join(__dirname, '..', 'seeds', 'engineers.import.json')
+        let raw: any = null
+        try {
+          raw = JSON.parse(await fs.readFile(rosterPath, 'utf8'))
+        } catch (e) {
+          console.warn('[SEED] No se pudo leer archivo de roster', (e as any)?.message)
+        }
+        if (Array.isArray(raw) && raw.length) {
+          let inserted = 0
+          if (isPg) { await pool.query('BEGIN') }
+          try {
+            for (const it of raw) {
+              const colegiado = String(it.colegiado || '').trim()
+              const nombre = String(it.nombre || '').trim()
+              if (!colegiado || !nombre) continue
+              const dpi = it.dpi ? String(it.dpi).trim() : null
+              const fecha = it.fechaNacimiento ? String(it.fechaNacimiento).trim() : null
+              if (isPg) {
+                await pool.query(
+                  `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento, is_admin)
+                   VALUES (?, ?, true, ?, ?, ?)
+                   ON CONFLICT (colegiado) DO UPDATE SET nombre=EXCLUDED.nombre, activo=EXCLUDED.activo, dpi=COALESCE(EXCLUDED.dpi, engineers.dpi), fecha_nacimiento=COALESCE(EXCLUDED.fecha_nacimiento, engineers.fecha_nacimiento);`,
+                  [colegiado, nombre, dpi, fecha, colegiado === '19999']
+                )
+              } else {
+                await pool.query(
+                  `INSERT INTO engineers (colegiado, nombre, activo, dpi, fecha_nacimiento, is_admin)
+                   VALUES (?, ?, 1, ?, ?, ?)
+                   ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), activo=VALUES(activo), dpi=IFNULL(VALUES(dpi), dpi), fecha_nacimiento=IFNULL(VALUES(fecha_nacimiento), fecha_nacimiento)`,
+                  [colegiado, nombre, dpi, fecha, colegiado === '19999' ? 1 : 0]
+                )
+              }
+              inserted++
+            }
+            if (isPg) { await pool.query('COMMIT') }
+            console.log(`[SEED] Roster inicial cargado (${inserted} registros)`)          
+          } catch (e) {
+            if (isPg) { try { await pool.query('ROLLBACK') } catch {} }
+            console.error('[SEED] Error sembrando roster inicial', (e as any)?.message)
+          }
+        } else {
+          console.warn('[SEED] Archivo roster vacío o inválido')
+        }
+      } else {
+        console.log('[SEED] engineers ya contiene registros, se omite seed inicial')
+      }
+    } catch (e) {
+      console.warn('[SEED] Falló verificación/seed inicial', (e as any)?.message)
+    }
     // Enforce all engineers active + ensure admin colegiado 19999 (idempotent) 
     try {
       if (isPg) {
