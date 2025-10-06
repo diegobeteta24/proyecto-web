@@ -14,9 +14,15 @@ export default function Landing() {
                 Plataforma oficial de votaciones electrónicas para ingenieros colegiados. Transparente, segura y en tiempo real.
               </p>
               <div className="d-flex flex-column flex-sm-row gap-3 cta-buttons">
-                <Button as={Link} to="/register" variant="primary" size="lg" className="shadow-sm flex-fill flex-sm-grow-0">Registrarse</Button>
-                <Button as={Link} to="/login" variant="outline-secondary" size="lg" className="shadow-sm flex-fill flex-sm-grow-0">Iniciar sesión</Button>
-                <Button as={Link} to="/admin/login" variant="outline-dark" size="lg" className="shadow-sm flex-fill flex-sm-grow-0">Admin</Button>
+                <Link to="/register" className="flex-fill flex-sm-grow-0 text-decoration-none">
+                  <Button variant="primary" size="lg" className="shadow-sm w-100">Registrarse</Button>
+                </Link>
+                <Link to="/login" className="flex-fill flex-sm-grow-0 text-decoration-none">
+                  <Button variant="outline-secondary" size="lg" className="shadow-sm w-100">Iniciar sesión</Button>
+                </Link>
+                <Link to="/admin/login" className="flex-fill flex-sm-grow-0 text-decoration-none">
+                  <Button variant="outline-dark" size="lg" className="shadow-sm w-100">Admin</Button>
+                </Link>
               </div>
               <small className="text-muted d-block mt-3">Crea tu cuenta o inicia sesión para participar en las próximas elecciones.</small>
             </Col>
@@ -65,7 +71,9 @@ export default function Landing() {
                 <Card.Body>
                   <h3 className="h5 mb-3">Próximas votaciones</h3>
                   <p className="mb-3 text-muted small">Inicia sesión para ver campañas activas, horarios y candidatos disponibles.</p>
-                  <Button as={Link} to="/login" variant="primary" size="sm">Ver campañas</Button>
+                  <Link to="/login" className="text-decoration-none">
+                    <Button variant="primary" size="sm">Ver campañas</Button>
+                  </Link>
                 </Card.Body>
               </Card>
             </Col>
