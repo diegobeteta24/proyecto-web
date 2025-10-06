@@ -129,22 +129,35 @@ campaignsRouter.get('/options/engineers/search', requireAuth, requireRole('admin
 // Admin: delete a campaign and its relations
 campaignsRouter.delete('/:id', requireAuth, requireRole('admin'), async (req: AuthRequest, res: Response) => {
   const id = req.params.id
-  const pool = await getPool()
-  const conn = await pool.getConnection()
+  const pool: any = await getPool()
+  const useConn = !!pool.getConnection
+  let conn: any = null
   try {
-    await conn.beginTransaction()
-    await conn.query('DELETE FROM votes WHERE campaign_id=?', [id])
-    await conn.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
-    const [result]: any = await conn.query('DELETE FROM campaigns WHERE id=?', [id])
-    await conn.commit()
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
-    return res.status(204).end()
+    if (useConn) {
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+      await conn.query('DELETE FROM votes WHERE campaign_id=?', [id])
+      await conn.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
+      const [result]: any = await conn.query('DELETE FROM campaigns WHERE id=?', [id])
+      await conn.commit()
+      if (result.affectedRows === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
+      return res.status(204).end()
+    } else {
+      // Postgres simple sequence (FK cascades no están definidas, hacemos manual)
+      await pool.query('DELETE FROM votes WHERE campaign_id=?', [id])
+      await pool.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
+      const [result]: any = await pool.query('DELETE FROM campaigns WHERE id=?', [id])
+      // In pg result.rowCount disponible; imitamos affectedRows
+      const affected = result?.affectedRows ?? result?.rowCount ?? 0
+      if (affected === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
+      return res.status(204).end()
+    }
   } catch (err) {
-    await conn.rollback()
+    if (useConn && conn) { try { await conn.rollback() } catch {} }
     console.error('DELETE /campaigns/:id failed', err)
     return res.status(500).json({ error: 'Error eliminando la campaña' })
   } finally {
-    conn.release()
+    if (useConn && conn) conn.release()
   }
 })
 
@@ -155,15 +168,20 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
   const start = new Date(iniciaEn)
   const end = new Date(terminaEn)
   if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) return res.status(400).json({ error: 'Rango de fechas inválido' })
-  const pool = await getPool()
-  const conn = await pool.getConnection()
+  const pool: any = await getPool()
+  const useConn = !!pool.getConnection
+  let conn: any = null
   try {
-    await conn.beginTransaction()
-    const [ins]: any = await conn.query(
+    if (useConn) {
+      conn = await pool.getConnection()
+      await conn.beginTransaction()
+    }
+    const exec = async (sql: string, params?: any[]) => useConn ? conn.query(sql, params) : pool.query(sql, params)
+    const [ins]: any = await exec(
       'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?)',
       [titulo, descripcion ?? null, Number(votosPorVotante), habilitada ? 1 : 0, start, end]
     )
-    const campaignId = ins.insertId as number
+    const campaignId = ins.insertId ?? ins[0]?.id ?? ins?.rows?.[0]?.id
     const candArr: any[] = Array.isArray(candidatos) ? candidatos : []
     for (const c of candArr) {
       let candidateId: number | null = null
@@ -172,35 +190,46 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
       } else if (c && typeof c === 'object' && c.engineerId) {
         // Create or reuse candidate bound to engineer
         const engId = Number(c.engineerId)
-        const [[existing]]: any = await conn.query('SELECT id FROM candidates WHERE engineer_id=? LIMIT 1', [engId])
+        const [[existing]]: any = await exec('SELECT id FROM candidates WHERE engineer_id=? LIMIT 1', [engId])
         if (existing) {
           candidateId = Number(existing.id)
         } else {
-          const [[eng]]: any = await conn.query('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
+          const [[eng]]: any = await exec('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
           if (!eng) throw new Error('Engineer not found or inactive')
-          const [insC]: any = await conn.query('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
+          const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
           candidateId = insC.insertId
         }
       } else if (typeof c === 'string') {
         const nombre = c
-        const [insC]: any = await conn.query('INSERT INTO candidates (nombre) VALUES (?)', [nombre])
+        const [insC]: any = await exec('INSERT INTO candidates (nombre) VALUES (?)', [nombre])
         candidateId = insC.insertId
       } else {
         const nombre = c?.nombre ?? 'Candidato'
-        const [insC]: any = await conn.query('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
+        const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
         candidateId = insC.insertId
       }
       // Insert link with optional per-campaign bio
-      await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [campaignId, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+      if (useConn) {
+        await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [campaignId, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+      } else {
+        // Pg: upsert manual (no ON DUPLICATE KEY). Intentar insert y si viola PK, actualizar
+        try {
+          await pool.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?)', [campaignId, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+        } catch (e: any) {
+          if (e?.code === '23505') {
+            await pool.query('UPDATE campaign_candidates SET bio=? WHERE campaign_id=? AND candidate_id=?', [(c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null, campaignId, candidateId])
+          } else throw e
+        }
+      }
     }
-    await conn.commit()
+    if (useConn) await conn.commit()
     const data = await fetchCampaignWithStats(campaignId)
     return res.json(data)
   } catch (err: any) {
-    try { await conn.rollback() } catch {}
+    if (useConn && conn) { try { await conn.rollback() } catch {} }
     return res.status(500).json({ error: 'No se pudo crear la campaña' })
   } finally {
-    conn.release()
+    if (useConn && conn) conn.release()
   }
 })
 
@@ -208,10 +237,12 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
 campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: AuthRequest, res: Response) => {
   const id = Number(req.params.id)
   const { titulo, descripcion, votosPorVotante, habilitada, iniciaEn, terminaEn, candidatos } = req.body ?? {}
-  const pool = await getPool()
-  const conn = await pool.getConnection()
+  const pool: any = await getPool()
+  const useConn = !!pool.getConnection
+  let conn: any = null
   try {
-    await conn.beginTransaction()
+    if (useConn) { conn = await pool.getConnection(); await conn.beginTransaction() }
+    const exec = async (sql: string, params?: any[]) => useConn ? conn.query(sql, params) : pool.query(sql, params)
     // Update core campaign fields if provided
     const fields: string[] = []
     const values: any[] = []
@@ -222,44 +253,54 @@ campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: Aut
     if (typeof iniciaEn !== 'undefined') { fields.push('inicia_en=?'); values.push(new Date(iniciaEn)) }
     if (typeof terminaEn !== 'undefined') { fields.push('termina_en=?'); values.push(new Date(terminaEn)) }
     if (fields.length > 0) {
-      await conn.query(`UPDATE campaigns SET ${fields.join(', ')} WHERE id=?`, [...values, id])
+      await exec(`UPDATE campaigns SET ${fields.join(', ')} WHERE id=?`, [...values, id])
     }
     // Replace candidates if provided
     if (Array.isArray(candidatos)) {
       // Remove existing links
-      await conn.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
+      await exec('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
       for (const c of candidatos) {
         let candidateId: number | null = null
         if (c && typeof c === 'object' && c.id) {
           candidateId = Number(c.id)
         } else if (c && typeof c === 'object' && c.engineerId) {
           const engId = Number(c.engineerId)
-          const [[existing]]: any = await conn.query('SELECT id FROM candidates WHERE engineer_id=? LIMIT 1', [engId])
+          const [[existing]]: any = await exec('SELECT id FROM candidates WHERE engineer_id=? LIMIT 1', [engId])
           if (existing) {
             candidateId = Number(existing.id)
           } else {
-            const [[eng]]: any = await conn.query('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
+            const [[eng]]: any = await exec('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
             if (!eng) throw new Error('Engineer not found or inactive')
-            const [insC]: any = await conn.query('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
+            const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
             candidateId = insC.insertId
           }
         } else {
           const nombre = typeof c === 'string' ? c : c?.nombre ?? 'Candidato'
-          const [insC]: any = await conn.query('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
+          const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
           candidateId = insC.insertId
         }
-        await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [id, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+        if (useConn) {
+          await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [id, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+        } else {
+          try {
+            await pool.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?)', [id, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
+          } catch (e: any) {
+            if (e?.code === '23505') {
+              await pool.query('UPDATE campaign_candidates SET bio=? WHERE campaign_id=? AND candidate_id=?', [(c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null, id, candidateId])
+            } else throw e
+          }
+        }
       }
     }
-    await conn.commit()
+    if (useConn) await conn.commit()
     const data = await fetchCampaignWithStats(id)
     if (!data) return res.status(404).json({ error: 'Campaña no encontrada' })
     return res.json(data)
   } catch (err) {
-    try { await conn.rollback() } catch {}
+    if (useConn && conn) { try { await conn.rollback() } catch {} }
     return res.status(500).json({ error: 'No se pudo actualizar la campaña' })
   } finally {
-    conn.release()
+    if (useConn && conn) conn.release()
   }
 })
 
