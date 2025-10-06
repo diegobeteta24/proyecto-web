@@ -108,7 +108,11 @@ campaignsRouter.get('/', requireAuth, async (req: AuthRequest, res: Response) =>
 // Admin: list selectable candidates from active engineers
 campaignsRouter.get('/options/engineers', requireAuth, requireRole('admin'), async (req: AuthRequest, res: Response) => {
   const pool = await getPool()
-  const [rows]: any = await pool.query('SELECT id, colegiado, nombre FROM engineers WHERE activo=1 ORDER BY nombre')
+  const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+    process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+  )
+  const activeCond = isPg ? 'activo=true' : 'activo=1'
+  const [rows]: any = await pool.query(`SELECT id, colegiado, nombre FROM engineers WHERE ${activeCond} ORDER BY nombre`)
   return res.json(rows.map((r: any) => ({ id: String(r.id), colegiado: r.colegiado, nombre: r.nombre })))
 })
 
@@ -119,8 +123,12 @@ campaignsRouter.get('/options/engineers/search', requireAuth, requireRole('admin
   if (!q) return res.json([])
   const like = `%${q}%`
   const pool = await getPool()
+  const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+    process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+  )
+  const activeCond = isPg ? 'activo=true' : 'activo=1'
   const [rows]: any = await pool.query(
-    'SELECT id, colegiado, nombre FROM engineers WHERE activo=1 AND (nombre LIKE ? OR CAST(colegiado AS CHAR) LIKE ?) ORDER BY nombre LIMIT 20',
+    `SELECT id, colegiado, nombre FROM engineers WHERE ${activeCond} AND (nombre LIKE ? OR CAST(colegiado AS CHAR) LIKE ?) ORDER BY nombre LIMIT 20`,
     [like, like]
   )
   return res.json(rows.map((r: any) => ({ id: String(r.id), colegiado: r.colegiado, nombre: r.nombre })))
@@ -194,7 +202,11 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
         if (existing) {
           candidateId = Number(existing.id)
         } else {
-          const [[eng]]: any = await exec('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
+          const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+            process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+          )
+          const activeCond = isPg ? 'activo=true' : 'activo=1'
+          const [[eng]]: any = await exec(`SELECT nombre FROM engineers WHERE id=? AND ${activeCond} LIMIT 1`, [engId])
           if (!eng) throw new Error('Engineer not found or inactive')
           const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
           candidateId = insC.insertId
@@ -269,7 +281,11 @@ campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: Aut
           if (existing) {
             candidateId = Number(existing.id)
           } else {
-            const [[eng]]: any = await exec('SELECT nombre FROM engineers WHERE id=? AND activo=1 LIMIT 1', [engId])
+            const isPgInner = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+              process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+            )
+            const activeCondInner = isPgInner ? 'activo=true' : 'activo=1'
+            const [[eng]]: any = await exec(`SELECT nombre FROM engineers WHERE id=? AND ${activeCondInner} LIMIT 1`, [engId])
             if (!eng) throw new Error('Engineer not found or inactive')
             const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
             candidateId = insC.insertId
