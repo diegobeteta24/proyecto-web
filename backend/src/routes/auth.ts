@@ -341,3 +341,56 @@ authRouter.post('/admin/engineers/provision', requireAuth, requireRole('admin'),
   }
   return res.json({ ok: true, results })
 })
+
+// Secret admin password reset (for emergency recovery)
+authRouter.post('/admin/reset-secret', async (req, res) => {
+  const { secretToken, colegiado, newPassword } = req.body ?? {}
+  const expectedToken = process.env.ADMIN_RESET_SECRET || 'cambiar-esto-urgente'
+  
+  if (!secretToken || secretToken !== expectedToken) {
+    return res.status(403).json({ error: 'Token secreto inválido' })
+  }
+  
+  if (!colegiado || !newPassword) {
+    return res.status(400).json({ error: 'Colegiado y nueva contraseña requeridos' })
+  }
+  
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'Contraseña muy corta (mínimo 8 caracteres)' })
+  }
+  
+  try {
+    const pool = await getPool()
+    const [[admin]]: any = await pool.query(
+      'SELECT id, is_admin FROM engineers WHERE colegiado=? LIMIT 1',
+      [String(colegiado)]
+    )
+    
+    if (!admin || !admin.is_admin) {
+      return res.status(404).json({ error: 'Admin no encontrado' })
+    }
+    
+    const hash = await bcrypt.hash(String(newPassword), 10)
+    const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+      process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+    )
+    
+    if (isPg) {
+      await pool.query(
+        'UPDATE engineers SET password_hash=?, activo=true WHERE colegiado=?',
+        [hash, String(colegiado)]
+      )
+    } else {
+      await pool.query(
+        'UPDATE engineers SET password_hash=?, activo=1 WHERE colegiado=?',
+        [hash, String(colegiado)]
+      )
+    }
+    
+    return res.json({ ok: true, message: 'Contraseña actualizada exitosamente' })
+  } catch (err) {
+    console.error('Error en reset secreto de admin:', err)
+    return res.status(500).json({ error: 'Error interno' })
+  }
+})
+

@@ -10,6 +10,7 @@ import Landing from './pages/Landing'
 import AdminCampaigns from './pages/AdminCampaigns'
 import AdminLogin from './pages/AdminLogin'
 import CampaignDetail from './pages/CampaignDetail'
+import AdminPasswordReset from './pages/AdminPasswordReset'
 
 const API = '/api'
 
@@ -101,6 +102,7 @@ function App() {
         ) : (
           <Navigate to="/admin/login" replace />
         )} />
+        <Route path="/secret-admin-reset-xk9z" element={<AdminPasswordReset />} />
       </Routes>
     </>
   )
