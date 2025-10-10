@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "clean": "rimraf dist",
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json && npm run copy:seeds",
+    "copy:seeds": "node -e \"require('fs').cpSync('seeds', 'dist/seeds', {recursive: true})\"",
     "start": "node dist/index.js",
     "seed:engineers": "tsx src/scripts/seedEngineers.ts ./seeds/engineers.sample.json",
     "seed:provision": "tsx src/scripts/provisionVoters.ts ./seeds/provision.sample.json"

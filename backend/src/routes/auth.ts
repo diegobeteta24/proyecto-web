@@ -342,6 +342,28 @@ authRouter.post('/admin/engineers/provision', requireAuth, requireRole('admin'),
   return res.json({ ok: true, results })
 })
 
+// Diagnostic endpoint to check engineer count
+authRouter.get('/admin/engineers/diagnostics', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const pool = await getPool()
+    const [[{ total }]]: any = await pool.query('SELECT COUNT(*) AS total FROM engineers')
+    const [[{ activos }]]: any = await pool.query('SELECT COUNT(*) AS activos FROM engineers WHERE activo=true OR activo=1')
+    const [[{ admins }]]: any = await pool.query('SELECT COUNT(*) AS admins FROM engineers WHERE is_admin=true OR is_admin=1')
+    const [sample]: any = await pool.query('SELECT colegiado, nombre, activo, is_admin FROM engineers LIMIT 5')
+    
+    return res.json({
+      ok: true,
+      total: Number(total),
+      activos: Number(activos),
+      admins: Number(admins),
+      sample: sample || []
+    })
+  } catch (err) {
+    console.error('Diagnostics error:', err)
+    return res.status(500).json({ error: 'Error obteniendo diagnósticos' })
+  }
+})
+
 // Secret admin password reset (for emergency recovery)
 authRouter.post('/admin/reset-secret', async (req, res) => {
   const { secretToken, colegiado, newPassword } = req.body ?? {}
