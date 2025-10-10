@@ -140,6 +140,7 @@ export default function AdminCampaigns() {
         console.warn('Expected array of campaigns, got', data)
         setItems([])
       } else {
+        console.log('[AdminCampaigns] Loaded campaigns:', data.map(c => ({ id: c.id, titulo: c.titulo })))
         setItems(data)
       }
     } catch (e) {
@@ -241,9 +242,17 @@ export default function AdminCampaigns() {
 
   async function removeCampaign(c: Campaign) {
     if (!confirm(`¿Eliminar la campaña "${c.titulo}"? Esta acción no se puede deshacer.`)) return
-    const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'DELETE', headers: authHeader as HeadersInit })
+    const headers: HeadersInit = authHeader
+    const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'DELETE', headers })
     if (!res.ok && res.status !== 204) {
-      try { const d = await res.json(); alert(d.error || 'No se pudo eliminar') } catch { alert('No se pudo eliminar') }
+      try { 
+        const d = await res.json()
+        console.error('Delete campaign failed:', d)
+        alert(d.error || 'No se pudo eliminar') 
+      } catch { 
+        console.error('Delete campaign failed with status:', res.status)
+        alert(`Error ${res.status}: No se pudo eliminar`) 
+      }
       return
     }
     await load()
