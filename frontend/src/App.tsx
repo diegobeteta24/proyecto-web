@@ -11,6 +11,7 @@ import AdminCampaigns from './pages/AdminCampaigns'
 import AdminLogin from './pages/AdminLogin'
 import CampaignDetail from './pages/CampaignDetail'
 import AdminPasswordReset from './pages/AdminPasswordReset'
+import AdminDiagnostics from './pages/AdminDiagnostics'
 
 const API = '/api'
 
@@ -60,7 +61,12 @@ function App() {
           </Navbar.Brand>
           <Nav className="ms-auto align-items-center gap-2">
             {token && (<Link to="/campaigns" className="btn btn-outline-success btn-sm">Campañas</Link>)}
-            {token && role === 'admin' && (<Link to="/admin/campaigns" className="btn btn-outline-dark btn-sm">Admin</Link>)}
+            {token && role === 'admin' && (
+              <>
+                <Link to="/admin/campaigns" className="btn btn-outline-dark btn-sm">Admin</Link>
+                <Link to="/admin/diagnostics" className="btn btn-outline-info btn-sm">Diagnóstico</Link>
+              </>
+            )}
             <Link to="/register" className="btn btn-outline-primary btn-sm">Registrarse</Link>
             {!token ? (
               <div className="d-flex gap-2">
@@ -99,6 +105,11 @@ function App() {
         )} />
         <Route path="/admin/campaigns" element={token && role === 'admin' ? (
           <AdminCampaigns />
+        ) : (
+          <Navigate to="/admin/login" replace />
+        )} />
+        <Route path="/admin/diagnostics" element={token && role === 'admin' ? (
+          <AdminDiagnostics />
         ) : (
           <Navigate to="/admin/login" replace />
         )} />
