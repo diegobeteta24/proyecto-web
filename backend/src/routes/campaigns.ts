@@ -153,12 +153,12 @@ campaignsRouter.delete('/:id', requireAuth, requireRole('admin'), async (req: Au
       if (result.affectedRows === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
       return res.status(204).end()
     } else {
-      // PostgreSQL - rowCount is directly on result object, not nested
+      // PostgreSQL - wrapper returns [rows, result] where result has rowCount
       await pool.query('DELETE FROM votes WHERE campaign_id=?', [id])
       await pool.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
-      const result: any = await pool.query('DELETE FROM campaigns WHERE id=?', [id])
-      console.log('[DELETE campaign] PostgreSQL result:', result)
-      // PostgreSQL: result.rowCount está en el objeto directo
+      const [rows, result]: any = await pool.query('DELETE FROM campaigns WHERE id=?', [id])
+      console.log('[DELETE campaign] PostgreSQL result:', { rows, rowCount: result?.rowCount })
+      // PostgreSQL: result[1].rowCount contains affected rows
       const affected = result?.rowCount ?? 0
       if (affected === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
       return res.status(204).end()
