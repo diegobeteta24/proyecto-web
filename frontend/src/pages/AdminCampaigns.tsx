@@ -219,32 +219,52 @@ export default function AdminCampaigns() {
       terminaEn: new Date(form.terminaEn).toISOString(),
       candidatos: selected.map((x: any) => ({ engineerId: String(x.engineerId), bio: String(x.bio || '').trim() || undefined }))
     }
-  const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
-    let res: Response
-    if (editing) {
-      res = await fetch(`${API}/campaigns/${editing.id}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
-    } else {
-      res = await fetch(`${API}/campaigns`, { method: 'POST', headers, body: JSON.stringify(body) })
+    const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
+    try {
+      let res: Response
+      if (editing) {
+        res = await fetch(`${API}/campaigns/${editing.id}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
+      } else {
+        res = await fetch(`${API}/campaigns`, { method: 'POST', headers, body: JSON.stringify(body) })
+      }
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Error al guardar la campaña')
+        return
+      }
+      setShow(false)
+      await load()
+    } catch (err) {
+      console.error('Error guardando campaña:', err)
+      alert('Error al guardar la campaña')
     }
-    const data = await res.json()
-    if (!res.ok) return alert(data.error || 'Error')
-    setShow(false)
-    await load()
   }
 
   async function toggle(c: Campaign) {
-  const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
-    const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'PATCH', headers, body: JSON.stringify({ habilitada: !c.habilitada }) })
-    const data = await res.json()
-    if (!res.ok) return alert(data.error || 'Error')
-    await load()
+    const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
+    try {
+      const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'PATCH', headers, body: JSON.stringify({ habilitada: !c.habilitada }) })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Error al cambiar estado')
+        return
+      }
+      await load()
+    } catch (err) {
+      console.error('Error cambiando estado:', err)
+      alert('Error al cambiar estado de la campaña')
+    }
   }
 
   async function removeCampaign(c: Campaign) {
     if (!confirm(`¿Eliminar la campaña "${c.titulo}"? Esta acción no se puede deshacer.`)) return
     const headers: HeadersInit = authHeader
-    const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'DELETE', headers })
-    if (!res.ok && res.status !== 204) {
+    try {
+      const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'DELETE', headers })
+      if (res.ok || res.status === 204) {
+        await load()
+        return
+      }
       try { 
         const d = await res.json()
         console.error('Delete campaign failed:', d)
@@ -253,9 +273,10 @@ export default function AdminCampaigns() {
         console.error('Delete campaign failed with status:', res.status)
         alert(`Error ${res.status}: No se pudo eliminar`) 
       }
-      return
+    } catch (err) {
+      console.error('Error eliminando campaña:', err)
+      alert('Error al eliminar la campaña')
     }
-    await load()
   }
 
   function exportCSV(c: Campaign) {
@@ -360,7 +381,13 @@ export default function AdminCampaigns() {
               {form.candidatos.map((c: any, i: number) => (
                 <div key={i} className="d-flex align-items-start gap-2 mb-2 w-100">
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <EngineerTypeahead value={c.engineerId} onChange={v => updateCand(i, v)} initialLabel={editCandLabels[i]} headers={authHeader as HeadersInit} />
+                    <EngineerTypeahead 
+                      key={editing ? `edit-${editing.id}-${i}` : `new-${i}`}
+                      value={c.engineerId} 
+                      onChange={v => updateCand(i, v)} 
+                      initialLabel={editCandLabels[i]} 
+                      headers={authHeader as HeadersInit} 
+                    />
                     <Form.Text muted>Descripción (opcional)</Form.Text>
                     <Form.Control as="textarea" rows={2} value={c.bio || ''} onChange={e => updateCandBio(i, e.target.value)} placeholder="Ej. Experto en infraestructura, 15 años de experiencia…" className="mt-1" />
                   </div>

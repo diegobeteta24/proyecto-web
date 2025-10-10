@@ -185,11 +185,23 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
       await conn.beginTransaction()
     }
     const exec = async (sql: string, params?: any[]) => useConn ? conn.query(sql, params) : pool.query(sql, params)
-    const [ins]: any = await exec(
-      'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?)',
-      [titulo, descripcion ?? null, Number(votosPorVotante), habilitada ? 1 : 0, start, end]
+    const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+      process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
     )
-    const campaignId = ins.insertId ?? ins[0]?.id ?? ins?.rows?.[0]?.id
+    let campaignId: number
+    if (isPg) {
+      const [ins]: any = await exec(
+        'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+        [titulo, descripcion ?? null, Number(votosPorVotante), habilitada ? true : false, start, end]
+      )
+      campaignId = Number(ins[0]?.id)
+    } else {
+      const [ins]: any = await exec(
+        'INSERT INTO campaigns (titulo, descripcion, votos_por_votante, habilitada, inicia_en, termina_en) VALUES (?, ?, ?, ?, ?, ?)',
+        [titulo, descripcion ?? null, Number(votosPorVotante), habilitada ? 1 : 0, start, end]
+      )
+      campaignId = ins.insertId
+    }
     const candArr: any[] = Array.isArray(candidatos) ? candidatos : []
     for (const c of candArr) {
       let candidateId: number | null = null
@@ -202,23 +214,35 @@ campaignsRouter.post('/', requireAuth, requireRole('admin'), async (req: AuthReq
         if (existing) {
           candidateId = Number(existing.id)
         } else {
-          const isPg = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
-            process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
-          )
           const activeCond = isPg ? 'activo=true' : 'activo=1'
           const [[eng]]: any = await exec(`SELECT nombre FROM engineers WHERE id=? AND ${activeCond} LIMIT 1`, [engId])
           if (!eng) throw new Error('Engineer not found or inactive')
-          const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
-          candidateId = insC.insertId
+          if (isPg) {
+            const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?) RETURNING id', [eng.nombre, engId])
+            candidateId = Number(insC[0]?.id)
+          } else {
+            const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
+            candidateId = insC.insertId
+          }
         }
       } else if (typeof c === 'string') {
         const nombre = c
-        const [insC]: any = await exec('INSERT INTO candidates (nombre) VALUES (?)', [nombre])
-        candidateId = insC.insertId
+        if (isPg) {
+          const [insC]: any = await exec('INSERT INTO candidates (nombre) VALUES (?) RETURNING id', [nombre])
+          candidateId = Number(insC[0]?.id)
+        } else {
+          const [insC]: any = await exec('INSERT INTO candidates (nombre) VALUES (?)', [nombre])
+          candidateId = insC.insertId
+        }
       } else {
         const nombre = c?.nombre ?? 'Candidato'
-        const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
-        candidateId = insC.insertId
+        if (isPg) {
+          const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?) RETURNING id', [nombre, c?.fotoUrl ?? null])
+          candidateId = Number(insC[0]?.id)
+        } else {
+          const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
+          candidateId = insC.insertId
+        }
       }
       // Insert link with optional per-campaign bio
       if (useConn) {
@@ -287,13 +311,26 @@ campaignsRouter.patch('/:id', requireAuth, requireRole('admin'), async (req: Aut
             const activeCondInner = isPgInner ? 'activo=true' : 'activo=1'
             const [[eng]]: any = await exec(`SELECT nombre FROM engineers WHERE id=? AND ${activeCondInner} LIMIT 1`, [engId])
             if (!eng) throw new Error('Engineer not found or inactive')
-            const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
-            candidateId = insC.insertId
+            if (isPgInner) {
+              const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?) RETURNING id', [eng.nombre, engId])
+              candidateId = Number(insC[0]?.id)
+            } else {
+              const [insC]: any = await exec('INSERT INTO candidates (nombre, engineer_id) VALUES (?, ?)', [eng.nombre, engId])
+              candidateId = insC.insertId
+            }
           }
         } else {
           const nombre = typeof c === 'string' ? c : c?.nombre ?? 'Candidato'
-          const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
-          candidateId = insC.insertId
+          const isPgInner2 = (process.env.DB_CLIENT || '').trim().toLowerCase() === 'pg' || (
+            process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
+          )
+          if (isPgInner2) {
+            const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?) RETURNING id', [nombre, c?.fotoUrl ?? null])
+            candidateId = Number(insC[0]?.id)
+          } else {
+            const [insC]: any = await exec('INSERT INTO candidates (nombre, foto_url) VALUES (?, ?)', [nombre, c?.fotoUrl ?? null])
+            candidateId = insC.insertId
+          }
         }
         if (useConn) {
           await conn.query('INSERT INTO campaign_candidates (campaign_id, candidate_id, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bio=VALUES(bio)', [id, candidateId, (c && typeof c === 'object' && c.bio) ? String(c.bio).trim() || null : null])
