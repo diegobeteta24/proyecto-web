@@ -347,8 +347,8 @@ authRouter.get('/admin/engineers/diagnostics', requireAuth, requireRole('admin')
   try {
     const pool = await getPool()
     const [[{ total }]]: any = await pool.query('SELECT COUNT(*) AS total FROM engineers')
-    const [[{ activos }]]: any = await pool.query('SELECT COUNT(*) AS activos FROM engineers WHERE activo=true OR activo=1')
-    const [[{ admins }]]: any = await pool.query('SELECT COUNT(*) AS admins FROM engineers WHERE is_admin=true OR is_admin=1')
+    const [[{ activos }]]: any = await pool.query('SELECT COUNT(*) AS activos FROM engineers WHERE activo=true')
+    const [[{ admins }]]: any = await pool.query('SELECT COUNT(*) AS admins FROM engineers WHERE is_admin=true')
     const [sample]: any = await pool.query('SELECT colegiado, nombre, activo, is_admin FROM engineers LIMIT 5')
     
     return res.json({
