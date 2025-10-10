@@ -127,8 +127,9 @@ campaignsRouter.get('/options/engineers/search', requireAuth, requireRole('admin
     process.env.DATABASE_URL && /^(postgres|postgresql):\/\//i.test(String(process.env.DATABASE_URL))
   )
   const activeCond = isPg ? 'activo=true' : 'activo=1'
+  // Case-insensitive search using UPPER() for both sides
   const [rows]: any = await pool.query(
-    `SELECT id, colegiado, nombre FROM engineers WHERE ${activeCond} AND (nombre LIKE ? OR CAST(colegiado AS CHAR) LIKE ?) ORDER BY nombre LIMIT 20`,
+    `SELECT id, colegiado, nombre FROM engineers WHERE ${activeCond} AND (UPPER(nombre) LIKE UPPER(?) OR CAST(colegiado AS CHAR) LIKE ?) ORDER BY nombre LIMIT 20`,
     [like, like]
   )
   return res.json(rows.map((r: any) => ({ id: String(r.id), colegiado: r.colegiado, nombre: r.nombre })))
@@ -142,6 +143,7 @@ campaignsRouter.delete('/:id', requireAuth, requireRole('admin'), async (req: Au
   let conn: any = null
   try {
     if (useConn) {
+      // MySQL with connection pool
       conn = await pool.getConnection()
       await conn.beginTransaction()
       await conn.query('DELETE FROM votes WHERE campaign_id=?', [id])
@@ -151,12 +153,13 @@ campaignsRouter.delete('/:id', requireAuth, requireRole('admin'), async (req: Au
       if (result.affectedRows === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
       return res.status(204).end()
     } else {
-      // Postgres simple sequence (FK cascades no están definidas, hacemos manual)
+      // PostgreSQL - rowCount is directly on result object, not nested
       await pool.query('DELETE FROM votes WHERE campaign_id=?', [id])
       await pool.query('DELETE FROM campaign_candidates WHERE campaign_id=?', [id])
-      const [result]: any = await pool.query('DELETE FROM campaigns WHERE id=?', [id])
-      // In pg result.rowCount disponible; imitamos affectedRows
-      const affected = result?.affectedRows ?? result?.rowCount ?? 0
+      const result: any = await pool.query('DELETE FROM campaigns WHERE id=?', [id])
+      console.log('[DELETE campaign] PostgreSQL result:', result)
+      // PostgreSQL: result.rowCount está en el objeto directo
+      const affected = result?.rowCount ?? 0
       if (affected === 0) return res.status(404).json({ error: 'Campaña no encontrada' })
       return res.status(204).end()
     }
