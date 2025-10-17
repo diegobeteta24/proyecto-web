@@ -33,15 +33,20 @@ export async function apiGet<T = any>(endpoint: string): Promise<T> {
 
 // Helper para POST con JSON body y response
 export async function apiPost<T = any>(endpoint: string, body: any): Promise<T> {
+  console.log('[apiPost] Request:', { endpoint, body })
   const res = await apiFetch(endpoint, { 
     method: 'POST', 
     body: JSON.stringify(body) 
   })
+  console.log('[apiPost] Response:', { status: res.status, ok: res.ok })
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: `Error ${res.status}` }))
+    console.error('[apiPost] Error:', error)
     throw new Error(error.error || `HTTP ${res.status}`)
   }
-  return res.json()
+  const data = await res.json()
+  console.log('[apiPost] Success data:', data)
+  return data
 }
 
 // Helper para PATCH con JSON body y response
