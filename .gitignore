@@ -29,3 +29,7 @@ frontend/.env
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Compliance reports (no subir al repo)
+COMPLIANCE.md
+compliance-report.json
