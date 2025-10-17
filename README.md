@@ -335,7 +335,9 @@ MIT License - Ver archivo LICENSE para más detalles.
 ## 👥 Autores
 
 **Desarrollo:**
-- Diego Beteta - [GitHub](https://github.com/diegobeteta24)
+- DIEGO ANTONIO BETETA GARCÍA 9490-22-12878
+- SERGIO ENRIQUE SANCHEZ SANCHEZ 9490-21-1077
+
 
 **Proyecto Académico:**
 - Universidad Mariano Gálvez de Guatemala
