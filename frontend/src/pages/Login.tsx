@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Container, Card, Form, Button, Alert, Row, Col } from 'react-bootstrap'
-
-const API = '/api'
+import { apiPost } from '../utils/apiClient'
 
 export default function Login({ onToken }: { onToken: (t: string) => void }) {
   const [colegiado, setColegiado] = useState('')
@@ -23,14 +22,12 @@ export default function Login({ onToken }: { onToken: (t: string) => void }) {
     if (!canSubmit) { setError('Revisa los campos'); return }
     setLoading(true)
     try {
-      const res = await fetch(`${API}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colegiado: cleanColegiado, dpi: cleanDpi, fechaNacimiento: dob, password: pwd })
+      const data = await apiPost('/auth/login', {
+        colegiado: cleanColegiado,
+        dpi: cleanDpi,
+        fechaNacimiento: dob,
+        password: pwd
       })
-      let data: any = null
-      try { data = await res.json() } catch { data = null }
-      if (!res.ok) { setError(data?.error || 'Credenciales inválidas'); return }
       onToken(data.token)
       navigate('/campaigns', { replace: true })
     } catch (err: any) {

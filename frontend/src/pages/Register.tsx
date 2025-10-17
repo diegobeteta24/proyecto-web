@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Container, Card, Form, Button, Alert, Row, Col } from 'react-bootstrap'
-
-const API = '/api'
+import { apiPost } from '../utils/apiClient'
 
 function isValidEmail(email: string) {
   return /[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+/.test(email)
@@ -58,22 +57,10 @@ export default function Register() {
     }
     try {
       setSubmitting(true)
-          const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
-          let data: any = null
-          try {
-            // Intentar parsear solo si hay contenido
-            const text = await res.text()
-            if (text) data = JSON.parse(text)
-          } catch (e) {
-            console.warn('Fallo parseando respuesta de registro', e)
-          }
-          if (!res.ok) {
-            setError((data && data.error) || 'Error de registro')
-            return
-          }
+      await apiPost('/auth/register', form)
       setOk(true)
     } catch (err: any) {
-      setError(err?.message || 'Error de red')
+      setError(err?.message || 'Error de registro')
     } finally {
       setSubmitting(false)
     }

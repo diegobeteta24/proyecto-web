@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { Container, Card, ListGroup, Badge, Button, Row, Col } from 'react-bootstrap'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
-
-const API = '/api'
+import { apiGet, apiPost, apiFetch } from '../utils/apiClient'
 
 export default function CampaignDetail() {
   const { id } = useParams()
@@ -21,11 +20,7 @@ export default function CampaignDetail() {
     (async () => {
       try {
         setLoading(true)
-        const res = await fetch(`${API}/campaigns/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-        if (!res.ok) {
-          setError('No se pudo cargar la campaña'); setLoading(false); return
-        }
-        const data = await res.json()
+        const data = await apiGet(`/campaigns/${id}`)
         setItem(data)
       } catch (e: any) {
         setError(e?.message || 'Error de red')
@@ -50,11 +45,8 @@ export default function CampaignDetail() {
     if (activeWindow && pollRef.current == null) {
       const h = window.setInterval(async () => {
         try {
-          const res = await fetch(`${API}/campaigns/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-          if (res.ok) {
-            const data = await res.json()
-            setItem(data)
-          }
+          const data = await apiGet(`/campaigns/${id}`)
+          setItem(data)
         } catch {}
       }, 7000)
       pollRef.current = h as unknown as number
@@ -119,16 +111,10 @@ export default function CampaignDetail() {
     if (!canVote) return
     try {
       setVoting(true)
-      const res = await fetch(`${API}/campaigns/${id}/vote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ candidateId })
-      })
-      const data = await res.json()
-      if (!res.ok) { alert(data.error || 'No se pudo registrar el voto'); return }
+      const data = await apiPost(`/campaigns/${id}/vote`, { candidateId })
       setItem((prev: any) => ({ ...prev, votos: data.votos, votosDisponibles: data.disponibles }))
-    } catch {
-      alert('No se pudo registrar el voto')
+    } catch (err: any) {
+      alert(err?.message || 'No se pudo registrar el voto')
     } finally {
       setVoting(false)
     }

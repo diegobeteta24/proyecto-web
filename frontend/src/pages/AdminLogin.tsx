@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Container, Form, Button, Card } from 'react-bootstrap'
-
-const API = '/api'
+import { apiPost } from '../utils/apiClient'
 
 export default function AdminLogin({ onToken }: { onToken?: (t: string) => void }) {
   const [colegiado, setColegiado] = useState('')
@@ -18,19 +17,15 @@ export default function AdminLogin({ onToken }: { onToken?: (t: string) => void 
       const body: any = { password }
       if (colegiado.trim()) body.colegiado = colegiado.trim()
       else body.email = email.trim()
-      const res = await fetch(`${API}/auth/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-  const data = await res.json()
-  if (!res.ok) return alert(data.error || 'Credenciales inválidas')
-  // Persist token y actualizar estado global si nos pasaron onToken
-  try { localStorage.setItem('token', data.token) } catch {}
-  if (onToken) onToken(data.token)
-  navigate('/admin/campaigns', { replace: true })
-    } catch {
-      alert('No se pudo iniciar sesión')
+      
+      const data = await apiPost('/auth/admin/login', body)
+      
+      // Persist token y actualizar estado global si nos pasaron onToken
+      try { localStorage.setItem('token', data.token) } catch {}
+      if (onToken) onToken(data.token)
+      navigate('/admin/campaigns', { replace: true })
+    } catch (err: any) {
+      alert(err?.message || 'No se pudo iniciar sesión')
     } finally {
       setLoading(false)
     }

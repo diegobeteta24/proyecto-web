@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom'
 import './styles/main.scss'
 import { safeDisplayName } from './utils/encoding'
+import { apiGet } from './utils/apiClient'
 import Register from './pages/Register'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
@@ -12,8 +13,6 @@ import AdminLogin from './pages/AdminLogin'
 import CampaignDetail from './pages/CampaignDetail'
 import AdminPasswordReset from './pages/AdminPasswordReset'
 import AdminDiagnostics from './pages/AdminDiagnostics'
-
-const API = '/api'
 
 function useAuth() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
@@ -39,11 +38,11 @@ function App() {
     async function load() {
       if (!token) { setCampaigns([]); return }
       try {
-        const res = await fetch(`${API}/campaigns`, { headers: { Authorization: `Bearer ${token}` } })
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await apiGet('/campaigns')
         if (!abort) setCampaigns(data)
-      } catch {}
+      } catch (err) {
+        console.error('Error loading campaigns:', err)
+      }
     }
     load()
     return () => { abort = true }

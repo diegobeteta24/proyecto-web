@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Container, Card, Table, Alert, Spinner, Button } from 'react-bootstrap'
+import { apiGet } from '../utils/apiClient'
 
 export default function AdminDiagnostics() {
   const [token] = useState<string | null>(() => localStorage.getItem('token'))
@@ -18,19 +19,7 @@ export default function AdminDiagnostics() {
     setError(null)
 
     try {
-      const res = await fetch('/api/auth/admin/engineers/diagnostics', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: 'Error desconocido' }))
-        setError(errData.error || `Error ${res.status}`)
-        return
-      }
-
-      const result = await res.json()
+      const result = await apiGet('/auth/admin/engineers/diagnostics')
       setData(result)
     } catch (err: any) {
       setError(err.message || 'Error de conexión')

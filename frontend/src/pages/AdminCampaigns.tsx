@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Col, Container, Form, Modal, Row, Spinner } from 'react-bootstrap'
-
-const API = '/api'
+import { apiGet, apiPost, apiPatch, apiDelete, apiFetch } from '../utils/apiClient'
 
 // Stable, top-level typeahead to avoid remounting on each parent re-render
 function EngineerTypeahead({ value, onChange, initialLabel, headers }: { value: string, onChange: (v: string) => void, initialLabel?: string, headers: HeadersInit }) {
@@ -30,8 +29,8 @@ function EngineerTypeahead({ value, onChange, initialLabel, headers }: { value: 
       try {
         setBusy(true)
         console.log('[Typeahead] fetching', { q })
-        const url = `${API}/campaigns/options/engineers/search?q=${encodeURIComponent(q.slice(0,100))}`
-        const res = await fetch(url, { headers })
+        const url = `/campaigns/options/engineers/search?q=${encodeURIComponent(q.slice(0,100))}`
+        const res = await apiFetch(url, { headers })
         if (!res.ok) { console.warn('[Typeahead] search failed', res.status); setSuggestions([]); return }
         let data: any = []
         try { data = await res.json() } catch { data = [] }
@@ -128,14 +127,7 @@ export default function AdminCampaigns() {
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/campaigns`, { headers: authHeader as HeadersInit })
-      if (!res.ok) {
-        console.error('Load campaigns failed', res.status)
-        setItems([])
-        return
-      }
-      let data: any = []
-      try { data = await res.json() } catch { data = [] }
+      const data = await apiGet('/campaigns')
       if (!Array.isArray(data)) {
         console.warn('Expected array of campaigns, got', data)
         setItems([])
@@ -219,63 +211,38 @@ export default function AdminCampaigns() {
       terminaEn: new Date(form.terminaEn).toISOString(),
       candidatos: selected.map((x: any) => ({ engineerId: String(x.engineerId), bio: String(x.bio || '').trim() || undefined }))
     }
-    const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
     try {
-      let res: Response
       if (editing) {
-        res = await fetch(`${API}/campaigns/${editing.id}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
+        await apiPatch(`/campaigns/${editing.id}`, body)
       } else {
-        res = await fetch(`${API}/campaigns`, { method: 'POST', headers, body: JSON.stringify(body) })
-      }
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error al guardar la campaña')
-        return
+        await apiPost('/campaigns', body)
       }
       setShow(false)
       await load()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error guardando campaña:', err)
-      alert('Error al guardar la campaña')
+      alert(err?.message || 'Error al guardar la campaña')
     }
   }
 
   async function toggle(c: Campaign) {
-    const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeader }
     try {
-      const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'PATCH', headers, body: JSON.stringify({ habilitada: !c.habilitada }) })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error al cambiar estado')
-        return
-      }
+      await apiPatch(`/campaigns/${c.id}`, { habilitada: !c.habilitada })
       await load()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error cambiando estado:', err)
-      alert('Error al cambiar estado de la campaña')
+      alert(err?.message || 'Error al cambiar estado de la campaña')
     }
   }
 
   async function removeCampaign(c: Campaign) {
     if (!confirm(`¿Eliminar la campaña "${c.titulo}"? Esta acción no se puede deshacer.`)) return
-    const headers: HeadersInit = authHeader
     try {
-      const res = await fetch(`${API}/campaigns/${c.id}`, { method: 'DELETE', headers })
-      if (res.ok || res.status === 204) {
-        await load()
-        return
-      }
-      try { 
-        const d = await res.json()
-        console.error('Delete campaign failed:', d)
-        alert(d.error || 'No se pudo eliminar') 
-      } catch { 
-        console.error('Delete campaign failed with status:', res.status)
-        alert(`Error ${res.status}: No se pudo eliminar`) 
-      }
-    } catch (err) {
+      await apiDelete(`/campaigns/${c.id}`)
+      await load()
+    } catch (err: any) {
       console.error('Error eliminando campaña:', err)
-      alert('Error al eliminar la campaña')
+      alert(err?.message || 'Error al eliminar la campaña')
     }
   }
 
