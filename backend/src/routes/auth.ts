@@ -416,3 +416,46 @@ authRouter.post('/admin/reset-secret', async (req, res) => {
   }
 })
 
+// Public roster status check (requires secret token)
+authRouter.post('/roster-status', async (req, res) => {
+  const { secretToken } = req.body ?? {}
+  const expectedToken = process.env.ADMIN_RESET_SECRET || 'cambiar-esto-urgente'
+  
+  if (!secretToken || secretToken !== expectedToken) {
+    return res.status(403).json({ error: 'Token secreto inválido' })
+  }
+  
+  try {
+    const pool = await getPool()
+    const [engineers]: any = await pool.query(
+      `SELECT 
+        colegiado, 
+        nombre, 
+        email,
+        CASE WHEN password_hash IS NULL THEN false ELSE true END as tiene_cuenta,
+        activo,
+        is_admin
+      FROM engineers 
+      ORDER BY colegiado ASC`
+    )
+    
+    const [[{ total }]]: any = await pool.query('SELECT COUNT(*) AS total FROM engineers')
+    const [[{ con_cuenta }]]: any = await pool.query('SELECT COUNT(*) AS con_cuenta FROM engineers WHERE password_hash IS NOT NULL')
+    const [[{ activos }]]: any = await pool.query('SELECT COUNT(*) AS activos FROM engineers WHERE activo=true')
+    
+    return res.json({
+      ok: true,
+      resumen: {
+        total: Number(total),
+        con_cuenta: Number(con_cuenta),
+        sin_cuenta: Number(total) - Number(con_cuenta),
+        activos: Number(activos),
+        inactivos: Number(total) - Number(activos)
+      },
+      ingenieros: engineers || []
+    })
+  } catch (err) {
+    console.error('Error en roster-status:', err)
+    return res.status(500).json({ error: 'Error consultando padrón' })
+  }
+})

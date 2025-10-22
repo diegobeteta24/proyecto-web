@@ -13,6 +13,7 @@ import AdminLogin from './pages/AdminLogin'
 import CampaignDetail from './pages/CampaignDetail'
 import AdminPasswordReset from './pages/AdminPasswordReset'
 import AdminDiagnostics from './pages/AdminDiagnostics'
+import RosterStatus from './pages/RosterStatus'
 
 function useAuth() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
@@ -113,6 +114,7 @@ function App() {
           <Navigate to="/admin/login" replace />
         )} />
         <Route path="/secret-admin-reset-xk9z" element={<AdminPasswordReset />} />
+        <Route path="/secret-roster-status-xk9z" element={<RosterStatus />} />
       </Routes>
     </>
   )
