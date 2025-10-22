@@ -1,6 +1,9 @@
 // API Client with JWT interceptor for automatic logout on 401
 const API_BASE = '/api'
 
+// Rutas que NO deben redirigir automáticamente en 401 (son rutas de login/registro)
+const LOGIN_ROUTES = ['/auth/login', '/auth/admin/login', '/auth/register']
+
 export async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem('token')
   const headers = {
@@ -11,8 +14,9 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
 
   const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers })
 
-  // Interceptor: Si 401, limpiar sesión y redirigir
-  if (response.status === 401) {
+  // Interceptor: Si 401 Y NO es una ruta de login, limpiar sesión y redirigir
+  // En login, el 401 es esperado (credenciales inválidas) y debe mostrar el error
+  if (response.status === 401 && !LOGIN_ROUTES.includes(endpoint)) {
     localStorage.removeItem('token')
     window.location.href = '/login'
     throw new Error('Sesión expirada. Redirigiendo al login...')
