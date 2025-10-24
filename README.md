@@ -4,9 +4,12 @@ Sistema de votaciones electrónicas para el Colegio de Ingenieros de Guatemala. 
 
 ---
 
-## 🌐 Sitio en Producción
+## 🌐 Sitio en Producción y Manuales
 
 **URL:** [https://colegio-ingenieros-dw-909704573ad3.herokuapp.com/](https://colegio-ingenieros-dw-909704573ad3.herokuapp.com/)
+**MANUAL TÉCNICO:** [https://drive.google.com/file/d/14Bh2YAN6cDIW4rdU_Hq2MIOAeVMNoeE2/view?usp=sharing](https://drive.google.com/file/d/14Bh2YAN6cDIW4rdU_Hq2MIOAeVMNoeE2/view?usp=sharing)
+**MANUAL USUARIO** [https://drive.google.com/file/d/1KYftNqgYpWQgEwBHjSLvMC78ULv2-s54/view?usp=sharing](https://drive.google.com/file/d/1KYftNqgYpWQgEwBHjSLvMC78ULv2-s54/view?usp=sharing)
+
 
 ### 🔑 Credenciales de Prueba
 
